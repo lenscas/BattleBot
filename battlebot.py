@@ -959,12 +959,12 @@ dev_datafile = 'battlebot_dev.pickle'
 if len(argv) > 1 and argv[1] == 'dev':
     print('Battlebot running in dev mode.')
     with open('devbot.token', mode='r') as f:
-        token = f.readline()
+        token = f.readline().strip()
     datafile = dev_datafile
 else:
     print('Battlebot running in release mode.')
     with open('bot.token', mode='r') as f:
-        token = f.readline()
+        token = f.readline().strip()
 
 try:
     with open(datafile, 'rb') as f:
@@ -974,6 +974,8 @@ try:
 except FileNotFoundError:
     print('Database could not be loaded. Creating an empty database.')
 
+print('Le Token: ' + token)
+print('Wait, does readLine return that with a newline at the end?')
 
 client.run(token)  # Blocking call; execution will not continue until client.run() returns
 

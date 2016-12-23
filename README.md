@@ -1,5 +1,5 @@
 # BattleBot
-A Discord bot that rolls dice and stuff.
+A Discord bot that rolls dice and stuff.  
 The original boilerplate code and the original /roll command was stolen from Eruantien. Much thanks to him for that.
 
 Type /help on any server on which Battlebot exists to get a list of the commands the bot will respond to.
@@ -9,7 +9,7 @@ Type /help on any server on which Battlebot exists to get a list of the commands
 2. Click the button to **Create a Bot User**.
 3. **Click** the link **to reveal** the bot user **token**.
 4. Copy the token somewhere (e.g. to your system clipboard). You'll need it later.
-5. Make sure you have Python 3.5 installed on your system.
+5. Make sure you have Python 3.5 or later installed on your system.
 6. Install the latest version of [https://github.com/Rapptz/discord.py](discord.py) as per manufactorer instructions.
 7. Clone this repository to anywhere you like.
 8. Create a text file in the repo's root directory named "bot.token".
