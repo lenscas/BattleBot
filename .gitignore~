@@ -87,3 +87,7 @@ ENV/
 
 # Rope project settings
 .ropeproject
+
+# Battlebot-specific stuff
+*.token
+*.pickle

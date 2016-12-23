@@ -89,5 +89,8 @@ ENV/
 .ropeproject
 
 # Battlebot-specific stuff
-*.token     # Bot token; definitely needs to be kept secret
-*.pickle    # Database file; no need to be uploading that all the time
+*.token
+*.pickle
+
+# Vim backup files
+*~
