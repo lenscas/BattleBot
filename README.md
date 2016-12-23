@@ -7,7 +7,7 @@ Type /help on any server on which Battlebot exists to get a list of the commands
 ## Installation
 1. Go to [https://discordapp.com/developers/applications/me](Discord Developers) and create a new application. Name it something memorable.
 2. Click the button to **Create a Bot User**.
-3. Click the link to reveal the bot user **token**.
+3. **Click** the link **to reveal** the bot user **token**.
 4. Copy the token somewhere (e.g. to your system clipboard). You'll need it later.
 5. Make sure you have Python 3.5 installed on your system.
 6. Install the latest version of [https://github.com/Rapptz/discord.py](discord.py) as per manufactorer instructions.

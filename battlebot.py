@@ -953,8 +953,8 @@ def updateDBFormat():
 
 token = ''
 
-datafile = 'bbotdata.pickle'
-dev_datafile = 'bbotdata_dev.pickle'
+datafile = 'battlebot.pickle'
+dev_datafile = 'battlebot_dev.pickle'
 
 if len(argv) > 1 and argv[1] == 'dev':
     print('Battlebot running in dev mode.')
@@ -973,8 +973,6 @@ try:
     print(str(len(database) - 1) + ' guilds loaded.')
 except FileNotFoundError:
     print('Database could not be loaded. Creating an empty database.')
-
-
 
 
 client.run(token)  # Blocking call; execution will not continue until client.run() returns
