@@ -974,8 +974,6 @@ try:
 except FileNotFoundError:
     print('Database could not be loaded. Creating an empty database.')
 
-print('Le Token: ' + token)
-print('Wait, does readLine return that with a newline at the end?')
 
 client.run(token)  # Blocking call; execution will not continue until client.run() returns
 
