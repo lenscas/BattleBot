@@ -779,25 +779,25 @@ async def on_ready():
     print('Invite Link: ' + get_invite(client.user.id))
 
 help_calc = """Calculation Commands:
-/calc roll XdY: Roll X dYs and add the results
-/calc check acc eva: Roll a BtNS-style accuracy check
-/calc damage atk def: Do a damage roll in my fancy BtNS-inspired way
+/calc roll XdY: Roll X dYs and add the results.
+/calc check acc eva: Roll a BtNS-style accuracy check.
+/calc damage atk def: Do a damage roll in my fancy BtNS-inspired way.
 /calc avgdmg atk def: Do 1000 damage rolls, calculate a bunch of summary statistics, and produce a histogram.
    Each `#` in the histogram represents 10 rolls that dealt that amount of damage, `|` is 5, `:` is 2, and `.` is 1
 /calc attack acc atk eva def hp: Roll accuracy and damage repeatedly, until HP damage has been dealt.
 /calc repattack acc atk eva def hp: Run /attack many times over, then return summary statistics and a histogram.
-/calc range r: Convert a range integer into a human-readable string
-/calc rangedump: Generate a list of all the range ranges, and their names
+/calc range r: Convert a range integer into a human-readable string.
+/calc rangedump: Generate a list of all the range ranges, and their names.
 /calc rangelookup strn: Look up the given range string, and return the range integers that it corresponds to.
     Only requires that the given name be a substring of the name in BattleBot's sourcecode, and ignores case:
     /calc rangelookup ortBOW works fine.
-/calc approach r spd [r2]: Do an approach roll, approaching the melee circle or, optionally, another character at range r2
-/calc retreat r spd: Do a retreat roll
-/calc defaultstats: Print out the default stats for all the size tiers
+/calc approach r spd [r2]: Do an approach roll, approaching the melee circle or, optionally, another character at range r2.
+/calc retreat r spd: Do a retreat roll.
+/calc defaultstats: Print out the default stats for all the size tiers.
 /calc testStatRoll n bucketSize: Test my new statical dice-rolling code against the count-and-add code by rolling n d10s.
     Returns a histogram. Each row is a bucket of bucketSize, collecting all rolls from one algorithm within its range.
     The even-numbered rows correspond to the count-and-add algorithm; the odd ones to the new statistical algorithm.
-/calc help: show this message again"""
+/calc help: show this message again."""
 
 help_gm = """GM commands:
     The following behavior only functions if you are a GM, meaning that you have
@@ -810,14 +810,14 @@ help_gm = """GM commands:
     If 0 or a negative number is specified for acc or atk, those stats will not be rolled.
     If anything at all is given for the fourth parameter, the bot will not echo the Accuracy or Attack specified.
     It's up to you to delete/edit your post to prevent players from reading the stats from it.
-/help gm: show this message again"""
+/help gm: show this message again."""
 
 
 help_msg = """Battlebot Commands:
-/invite: Show this bot's invite link
-/roll XdY: Roll X dYs and add the results
-/defaultstats: Print out the default stats for all the size tiers
-/makechar name race hp acc eva atk dfn spd: Create a character with the given name, race, and stat point distribution
+/invite: Show this bot's invite link.
+/roll XdY: Roll X dYs and add the results.
+/defaultstats: Print out the default stats for all the size tiers.
+/makechar name race hp acc eva atk dfn spd: Create a character with the given name, race, and stat point distribution.
     Accepted races: faerie, elf, werecat, elfcat, cyborg, robot, kraken, elfship, steamship
 /join name: Join the battle ongoing on your server.
     Support for using /join with no argument to automatically add one of your characters is planned, but NYI.
@@ -827,9 +827,12 @@ help_msg = """Battlebot Commands:
 /list name: Show all the info about the named character.
 /clear: Clear the current battle and heal and respawn all participants. Only GMs can do this.
 /delete name: Delete a character. Only works on characters you created. Warning, this is permanent!
-/help calc: Show help for all the old calculation commands
+/github: Show the link to this bot's sourcecode on GitHub.
+/help calc: Show help for all the old calculation commands.
 /help gm: Show help for the various GM commands.
-/help: Show this message again"""
+/help: Show this message again."""
+
+git_link = 'https://github.com/SomeoneElse37/BattleBot'
 
 PREFIX = '/'
 
@@ -901,6 +904,8 @@ def getReply(content, message):
             return toggleSecret(codex[1:], message.author)
         elif codex[0] == 'gmattack':
             return gm_attack(codex[1:], message.author)
+        elif codex[0] == 'github':
+            return git_link
         elif codex[0] == 'invite':
             return get_invite(client.user.id)
     return ""
