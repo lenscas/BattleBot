@@ -313,26 +313,37 @@ def formatRetreat(r, spd):
     dx = sum(spd)
     return formatRoll(spd) + '\n' + str(dx) + ': Moved from ' + str(r) + ' (' + rangestring(r) + ') to ' + str(r + dx) + ' (' + rangestring(r + dx) + ').'
 
-def retreat(codex):
+def prettyRetreat(r, spd, limit=-1, secret=False):
+    s1, r1 = prettyRoll(spd, secret=secret)
+    newR = r + r1
+    if limit > 0 and newR > limit:
+        newR = limit
+    return "{:s}\n{:d}: Moved from {:d} ({:s}) to {:d} ({:s}).".format(s1, r1, r, rangestring(r), newR, rangestring(newR)), newR
+
+def calcRetreat(codex):
     return(formatRetreat(int(codex[0]), d10(int(codex[1]), 10)))
 
 def approachCenter(r, spd):
     dx = sum(spd)
     return formatRoll(spd) + '\n' + str(dx) + ': Moved from ' + str(r) + ' (' + rangestring(r) + ') to ' + str(max(0, r - dx)) + ' (' + rangestring(r - dx) + ').'
 
-def approachChar(r1, spd, r2):
-    dx = sum(spd)
+def prettyApproachCenter(r, spd, limit=-1, secret=False):
+    s1, r1 = prettyRoll(spd, secret=secret)
+    newR = max(0, limit, r - r1)
+    return "{:s}\n{:d}: Moved from {:d} ({:s}) to {:d} ({:s}).".format(s1, r1, r, rangestring(r), newR, rangestring(newR)), newR
+
+def prettyApproachChar(r1, spd, r2, limit=-1, secret=False):
+    out, dx = prettyRoll(spd, secret=secret)
+    # dx = sum(spd)
     rangediff = abs(r1 - r2)
-
             # For 1..dx, subtract 1 from r1 or r2, whichever is bigger.
-
+            #
             # If dx > rangediff:
             #   Set the bigger range equal to the smaller one
             #   then subtract (dx - rangediff)/2 from both
             #   then subtract 1 from r1, if (dx-rangediff) was odd.
             # If dx <= rangediff:
             #   Subtract dx from the bigger range.
-
     r1final = r1
     r2final = r2
     if dx > rangediff:
@@ -340,24 +351,24 @@ def approachChar(r1, spd, r2):
             r1final = r2
         else:
             r2final = r1
-        r1final = r1final - int((dx - rangediff) / 2) - (dx - rangediff) % 2
-        r2final = r2final - int((dx - rangediff) / 2)
+        r1final -= int((dx - rangediff) / 2) - (dx - rangediff) % 2
+        r2final -= int((dx - rangediff) / 2)
     else:
         if r1 > r2:
             r1final = r1 - dx
         else:
             r2final = r2 - dx
+    r1final = max(0, limit, r1final)
+    r2final = max(0, limit, r2final)
+    out += '\n{:d}: Pursuer moved from {:d} ({:s}) to {:d} ({:s}).'.format(dx, r1, rangestring(r1), r1final, rangestring(r1final))
+    out += '\n Target moved from {:d} ({:s}) to {:d} ({:s}).'.format(r2, rangestring(r2), r2final, rangestring(r2final))
+    return out, r1final, r2final
 
-    out = formatRoll(spd) + '\n'
-    out = out + str(dx) + ': Pursuer moved from ' + str(r1) + ' (' + rangestring(r1) + ') to ' + str(max(0, r1final)) + ' (' + rangestring(r1final) + ').\n'
-    out = out + 'Target moved from ' + str(r2) + ' (' + rangestring(r2) + ') to ' + str(max(0, r2final)) + ' (' + rangestring(r2final) + ').'
-    return out
-
-def approach(codex):
+def calcApproach(codex):
     if len(codex) <= 2:
-        return(approachCenter(int(codex[0]), d10(int(codex[1]), 10)))
+        return approachCenter(int(codex[0]), d10(int(codex[1]), 10))
     else:
-        return(approachChar(int(codex[0]), d10(int(codex[1]), 10), int(codex[2])))
+        return prettyApproachChar(int(codex[0]), int(codex[1]), int(codex[2]))
 
 
 ##################################################
@@ -497,6 +508,22 @@ Health: {:d}""".format(self.username, self.userid, self.name, self.race, self.si
         else:
             return accStr, 0
 
+    # Retreat ability. Roll speed, and add the result to this chracter's location. Return (logstring, newLocation)
+    def retreat(self, limit=-1):
+        out, self.location = prettyRetreat(self.location, self.spd(), limit=limit, secret=self.secret)
+        return out, self.location
+
+    # Target-free approach ability. Roll speed, and subtract the result from this chracter's location. Return (logstring, newLocation)
+    def approachCenter(self, limit=-1):
+        out, self.location = prettyApproachCenter(self.location, self.spd(), limit=limit, secret=self.secret)
+        return out, self.location
+
+    # Targeted approach ability. Roll speed, and move the user and the target toward the center. This character is the PURSUER, NOT the target.
+    # Return (logString, newUserLocation, newTargetLocation)
+    def approachChar(self, target, limit=-1):
+        out, self.location, target.location = prettyApproachChar(self.location, self.spd(), target.location, limit=limit, secret=self.secret)
+        return out, self.location, target.location
+
     def __eq__(self, other):
         return self.userid == other.userid and self.name == other.name
 
@@ -625,6 +652,23 @@ class Battle:
         self.passTurn()
         return out
 
+    def retreat(self, limit=-1):
+        out, newLoc = self.currentChar().retreat(limit=limit)
+        self.passTurn()
+        return out
+
+    # If targetName and target are both specified, targetName wins
+    def approach(self, targetName=None, target=None, limit=-1):
+        if targetName is not None:
+            target = self.characters[targetName.lower()]
+        out = ''
+        if target is None:
+            out, newLoc = self.currentChar().approachCenter(limit=limit)
+        else:
+            out, newLoc, tLoc = self.currentChar().approachChar(target, limit=limit)
+        self.passTurn()
+        return out
+
 
 # All of the Battles known to Battlebot, with all their data, keyed by guild ID.
 database = {}
@@ -704,6 +748,36 @@ def basicAttack(codex, author):
     char = battle.currentChar()
     if author.id == char.userid or author.server_permissions.administrator or author.server_permissions.manage_messages:
         return battle.basicAttack(codex[0]) + '\n\n' + battle.currentCharPretty()
+    else:
+       return "You need Manage Messages or Administrator permission to take control of players' characters!"
+
+def retreat(codex, author):
+    battle = database[author.server.id]
+    char = battle.currentChar()
+    if author.id == char.userid or author.server_permissions.administrator or author.server_permissions.manage_messages:
+        if len(codex) > 0:
+            return battle.retreat(limit=int(codex[0])) + '\n\n' + battle.currentCharPretty()
+        else:
+            return battle.retreat() + '\n\n' + battle.currentCharPretty()
+    else:
+       return "You need Manage Messages or Administrator permission to take control of players' characters!"
+
+# Command syntax: /approach [target] [limit]
+def approach(codex, author):
+    battle = database[author.server.id]
+    char = battle.currentChar()
+    if author.id == char.userid or author.server_permissions.administrator or author.server_permissions.manage_messages:
+        target = None   # Default values, to be used for arguments that are not specified
+        limit = -1
+        if len(codex) >= 2: # Both optional arguments are specified
+            target = codex[0]
+            limit = int(codex[1])
+        elif len(codex) == 1:   # One argument given, but I don't know which one yet
+            try:
+                limit = int(codex[0])
+            except ValueError:
+                target = codex[0]
+        return battle.approach(targetName=target, limit=limit) + '\n\n' + battle.currentCharPretty()
     else:
        return "You need Manage Messages or Administrator permission to take control of players' characters!"
 
@@ -821,8 +895,11 @@ help_msg = """Battlebot Commands:
     Accepted races: faerie, elf, werecat, elfcat, cyborg, robot, kraken, elfship, steamship
 /join name: Join the battle ongoing on your server.
     Support for using /join with no argument to automatically add one of your characters is planned, but NYI.
-/attack name: Punch the named character with a basic physical attack. Only works if it's currently your turn.
-/pass: Pass your turn. Only works if it is currently your turn.
+/attack name: Punch the named character with a basic physical attack.
+    This and the next few commands only work during your turn.
+/approach [target] [limit]: Approach the center of the battlefield, optionally dragging target character with you.
+/retreat [limit]: Retreat from the center of the battlefield, up to the optional limit.
+/pass: Pass your turn. Simple enough.
 /list: List a bunch of info about the current state of the battle- who's participating, turn order, etc.
 /list name: Show all the info about the named character.
 /clear: Clear the current battle and heal and respawn all participants. Only GMs can do this.
@@ -864,9 +941,9 @@ def getReply(content, message):
             elif codex[0] == 'rangelookup':
                 return checkRangeReverse(codex[1:])
             elif codex[0] == 'approach':
-                return approach(codex[1:])
+                return calcApproach(codex[1:])
             elif codex[0] == 'retreat':
-                return retreat(codex[1:])
+                return calcRetreat(codex[1:])
             elif codex[0] == 'defaultstats':
                 return stats(codex[1:])
             elif codex[0] == 'testStatRoll':
@@ -890,6 +967,10 @@ def getReply(content, message):
             return info(codex[1:], message.author)
         elif codex[0] == 'attack':
             return basicAttack(codex[1:], message.author)
+        elif codex[0] == 'approach':
+            return approach(codex[1:], message.author)
+        elif codex[0] == 'retreat':
+            return retreat(codex[1:], message.author)
         elif codex[0] == 'pass':
             return passTurn(codex[1:], message.author)
         elif codex[0] == 'clear':
