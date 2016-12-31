@@ -75,16 +75,30 @@ def prettyRoll(n, secret=False):
             roll = statisticD10Sum(n)
         return '{:d} = [...]'.format(roll), roll
 
-def checkString(r1, r2):
+accCheckFlavors = [
+        'The attack missed by a mile.',
+        'Failure. The attack missed.',
+        'Success! The attack connects.',
+        'Critical hit? Maybe?'
+        ]
+
+aglCheckFlavors = [
+        'No. Not even close.',
+        "Couldn't quite escape melee range.",
+        'Just made it out of melee range.',
+        'Easily escaped melee range.'
+        ]
+
+def checkString(r1, r2, flavors=accCheckFlavors):
     diff = r1 - r2
     if diff < -20:
-        return "The attack missed by a mile."
+        return flavors[0]
     elif diff <= 0:
-        return "Failure. The attack missed."
+        return flavors[1]
     elif diff <= 20:
-        return "Success! The attack connects."
+        return flavors[2]
     else:
-        return "Critical hit? Maybe?"
+        return flavors[3]
 
 def formatCheck(atk, dfn):
     r1 = sum(atk)
@@ -99,10 +113,10 @@ def check(codex):
 # Rolls an accuracy check, using modern dice-rolling and secret-handling technology. Optional keyword argument called secrets
 # takes a pair of booleans, defaulting to (False, False). If secrets[0] is True, the number of Accuracy dice rolled will not be reported;
 # if secrets[1] is true, the number of Evasion dice will not be reported.
-def prettyCheck(acc, eva, secrets=(False, False)):
+def prettyCheck(acc, eva, secrets=(False, False), flavors=accCheckFlavors):
     s1, r1 = prettyRoll(acc, secrets[0])
     s2, r2 = prettyRoll(eva, secrets[1])
-    return s1 + '\n' + s2 + '\n' + checkString(r1, r2), r1 > r2
+    return s1 + '\n' + s2 + '\n' + checkString(r1, r2, flavors=flavors), r1 > r2
 
 # Used in the command that rolls damage a bunch of times. Yes, I'm duplicating code, sue me.
 def calcDamage(atk, dfn):   # Takes the attack and defense STATS as parameters (not rolls)
@@ -262,9 +276,9 @@ rangeNames = {
         8: 'Intercontinental Range'
         }
 
-BASE_RANGE = 16     # The miminum distance, in range units, considered to be in Sword Range
+BASE_RANGE = 2      # The miminum distance, in range units, considered to be in Sword Range
 HIGHEST_RANGE_KEY = len(rangeNames) - 1
-BOXING_MAX = BASE_RANGE - 1     # Used when checking that basic physical attacks can actually be done
+BOXING_MAX = BASE_RANGE - 1     # Deprecated. Used when checking that basic physical attacks can actually be done
 
 def rangestring(rangeInt):
     n = min((rangeInt // BASE_RANGE).bit_length(), HIGHEST_RANGE_KEY)
@@ -370,6 +384,57 @@ def calcApproach(codex):
     else:
         return prettyApproachChar(int(codex[0]), int(codex[1]), int(codex[2]))
 
+def magnitude(vec):
+    return math.hypot(vec[0], vec[1])
+
+# Pythagorean distance formula.
+def distance(pos1, pos2):
+    return math.hypot(pos1[0] - pos2[0], pos1[1] - pos2[1])
+
+# If you're at (0, 0) and you move dist units in the direction of target, this will return where you wind up, rounded to integers as an (x, y) pair.
+def setMag(target, dist):
+    magn = math.hypot(target[0], target[1])
+    x = int(target[0] * dist / magn)
+    y = int(target[1] * dist / magn)
+    return (x, y)
+
+# Because unpacking and repacking tuples everywhere is just too difficult.
+def addVec(v1, v2):
+    return (v1[0] + v2[0], v1[1] + v2[1])
+
+def flipVec(v):
+    return (-v[0], -v[1])
+
+# Parse a string formatted like '4E', returning an (x, 0) or (0, y) pair, or raises a ValueError is the format is incorrect
+def parseCoord(strn):
+    char = strn[-1].lower()
+    num = int(strn[:-1]) if len(strn) > 1 else 1
+    if char == 'n':
+        return (0, num)
+    elif char == 's':
+        return (0, -num)
+    elif char == 'w':
+        return (-num, 0)
+    elif char == 'e':
+        return (num, 0)
+    else:
+        raise ValueError('Improper coordinate format: ' + strn)
+
+# Takes in a list of strings, and greedily parses the first one or two, returning ((x, y), rest_of_codex) or (None, codex)
+def parseDirection(codex):
+    try:
+        coord1 = parseCoord(codex[0])
+    except (ValueError, IndexError):
+        return None, codex
+    try:
+        coord2 = parseCoord(codex[1])
+    except (ValueError, IndexError):
+        return coord1, codex[1:]
+    if (coord1[0] == 0 and coord2[1] == 0) or (coord1[1] == 0 and coord2[0] == 0):
+        return addVec(coord1, coord2), codex[2:]
+    else:
+        return coord1, codex[1:]
+
 
 ##################################################
 ##### Code for moderated battles begins here #####
@@ -430,7 +495,7 @@ class Character:
         self.abilities = []     # Ability system is planned, but NYI
         self.modifiers = []     # Modifier system is also planned, but NYI
         self.health = self.hp()
-        self.location = 0
+        self.pos = (0, 0)       # X and Y coordinates
         self.secret = secret    # If true, this character's stats will not be reported to players (used for some NPCs)
 
     # Returns the characters hp STAT, i.e. their MAXIMUM health, NOT their current health. Use the self.health attribute for that.
@@ -469,8 +534,8 @@ Race: {:s}
 Size Tier: {:d}
 Stat Points: [{:s}]
 Current Stats: [{:s}]
-Location: {:d}
-Health: {:d}""".format(self.username, self.userid, self.name, self.race, self.size, s1, s2, self.location, self.health)
+Location: ({:d}, {:d})
+Health: {:d}""".format(self.username, self.userid, self.name, self.race, self.size, s1, s2, self.pos[0], self.pos[1], self.health)
 
     def respawn(self):
         self.health = self.hp()
@@ -508,21 +573,50 @@ Health: {:d}""".format(self.username, self.userid, self.name, self.race, self.si
         else:
             return accStr, 0
 
-    # Retreat ability. Roll speed, and add the result to this chracter's location. Return (logstring, newLocation)
-    def retreat(self, limit=-1):
-        out, self.location = prettyRetreat(self.location, self.spd(), limit=limit, secret=self.secret)
-        return out, self.location
+    # Movement ability. Roll speed, then move the Character's coordinates along the specified [(dx, dy), ...] path, up to the maximum distance.
+    # If maxDist is positive, the Character will try to move exactly that distance, continuing beyond the end of the path if necessary and ignoring the stop parameter.
+    # If stop == False, when the Character reaches the end of the path, they will continue moving in that direction as far as the speed roll and maxDist permit.
+    def testMove(self, path, maxDist, stop):
+        out, dist = prettyRoll(self.spd(), secret=self.secret)
+        pos = self.pos
+        if maxDist >= 0:        # Set the distance to travel to either the roll or the maxDist parameter, if given, whichever is less.
+            dist = min(dist, maxDist)
+            stop = False
+        elif stop:    # If the character is intended to stop at the end of the path, ensure that the last waypoint is "go nowhere"
+            path.append((0, 0))
+        for i in range(len(path) - 1):  # Last coordinate in the path is treated differently, so don't iterate through it here
+            mag = magnitude(path[i])
+            if mag >= dist:
+                pos = addVec(pos, setMag(path[i], dist))
+                dist = 0
+                break
+            else:
+                pos = addVec(pos, path[i])
+                dist -= mag
+        if dist > 0 and magnitude(path[-1]) > 0:        # If character can travel any farther and the last waypoint isn't "go nowhere",
+            pos = addVec(pos, setMag(path[-1], dist))   # move character in the direction of the last waypoint as far as possible
+        return out + '\nMoved from {!s} to {!s}'.format(self.pos, pos), pos
 
-    # Target-free approach ability. Roll speed, and subtract the result from this chracter's location. Return (logstring, newLocation)
-    def approachCenter(self, limit=-1):
-        out, self.location = prettyApproachCenter(self.location, self.spd(), limit=limit, secret=self.secret)
-        return out, self.location
+    # Will be fancier once abilities are in
+    def canMelee(self, pos):
+        return distance(pos, self.pos) < BASE_RANGE
 
-    # Targeted approach ability. Roll speed, and move the user and the target toward the center. This character is the PURSUER, NOT the target.
-    # Return (logString, newUserLocation, newTargetLocation)
-    def approachChar(self, target, limit=-1):
-        out, self.location, target.location = prettyApproachChar(self.location, self.spd(), target.location, limit=limit, secret=self.secret)
-        return out, self.location, target.location
+
+    # # Retreat ability. Roll speed, and add the result to this chracter's location. Return (logstring, newLocation)
+    # def retreat(self, limit=-1):
+    #     out, self.location = prettyRetreat(self.location, self.spd(), limit=limit, secret=self.secret)
+    #     return out, self.location
+
+    # # Target-free approach ability. Roll speed, and subtract the result from this chracter's location. Return (logstring, newLocation)
+    # def approachCenter(self, limit=-1):
+    #     out, self.location = prettyApproachCenter(self.location, self.spd(), limit=limit, secret=self.secret)
+    #     return out, self.location
+
+    # # Targeted approach ability. Roll speed, and move the user and the target toward the center. This character is the PURSUER, NOT the target.
+    # # Return (logString, newUserLocation, newTargetLocation)
+    # def approachChar(self, target, limit=-1):
+    #     out, self.location, target.location = prettyApproachChar(self.location, self.spd(), target.location, limit=limit, secret=self.secret)
+    #     return out, self.location, target.location
 
     def __eq__(self, other):
         return self.userid == other.userid and self.name == other.name
@@ -537,7 +631,7 @@ class Battle:
         self.turn = -1          # participants[turn] = the Character whose turn it is
         self.id = guild.id      # Guild ID
         self.name = guild.name  # Guild Name
-        self.radius = -1        # Radius of the battlefield; the maximum distance anyone will be able to be from the center; -1 is no limit
+        self.size = (2048, 2048)
 
     def addCharacter(self, char):
         if char.name.lower() not in self.characters:
@@ -577,8 +671,8 @@ class Battle:
                 ties[index:index] = [char] # Insert char at a random location within the ties
                 self.participants[firstEq:firstLess] = ties # and put them back into participants
                 self.turn += 1 if firstLess + index <= self.turn else 0
-            if char.location > self.radius:     # A little sanity check here.
-                char.location = self.radius
+            char.pos[0] = min(char.pos[0], self.size[0])
+            char.pos[1] = min(char.pos[1], self.size[1])
 
     # No undefined behavior here
     def addParticipant(self, name):
@@ -610,9 +704,9 @@ class Battle:
             out += '\n\nOrder of Initative [current HP]:\n'
             for char in self.participants:
                 out += char.name + '[' + str(char.health) + '] '
-            out += '\n\nSorted by Location (current range):\n'
-            for char in sorted(self.participants, key=lambda char: char.location):
-                out += char.name + '(' + str(char.location) + ') '
+            # out += '\n\nSorted by Location (current range):\n'
+            # for char in sorted(self.participants, key=lambda char: char.location):
+            #     out += char.name + '(' + str(char.location) + ') '
             out += '\n\n' + self.currentCharPretty()
             if self.turn == -1:
                 out += "\n\nThe battle has yet to begin!"
@@ -641,10 +735,8 @@ class Battle:
         target = self.characters[targetName.lower()]
         if target not in self.participants:
             return target.name + ' is not participating in the battle!'
-        if user.location > BOXING_MAX:
-            return 'You can only use basic physical attacks at boxing range!'
-        if target.location > BOXING_MAX:
-            return target.name + ' is at ' + rangestring(target.location) + '!'
+        if distance(user.pos, target.pos) > BOXING_MAX:
+            return target.name + ' is too far away!'
         out, damage = target.rollFullAttack(user.acc(), user.atk(), secret=user.secret)
         if target.health <= 0:
             self.removeParticipantByChar(target)
@@ -652,22 +744,68 @@ class Battle:
         self.passTurn()
         return out
 
-    def retreat(self, limit=-1):
-        out, newLoc = self.currentChar().retreat(limit=limit)
+    # Syntax: /move [[distance]cardinal | name] ... [+ | maxDistance]
+    # Return: (path, maxDist, stop), just like the parameters in Character.testMove()
+    def parseDirectionList(self, startPos, codex):
+        path = []
+        pos = startPos
+        while len(codex) > 0:
+            step, codex = parseDirection(codex)
+            if step is None:    # Current element of codex cannot be parsed as a direction because it is not formatted like '2W' or '5s'
+                if len(codex) == 1: # Last element of codex may optionally use special syntax
+                    try:
+                        maxDist = int(codex[0])     # If the last element can be parsed as an integer, use it as the maximum distance
+                        return path, maxDist, False
+                    except ValueError:
+                        if codex[0] == '+':     # Last element being a + sign means "keep going in this direction"
+                            return path, -1, False
+                if codex[0].lower() in self.characters:     # If the element is the name of a character (case-insensitive)
+                    newPos = self.characters[codex[0].lower()].pos  # add a segment going straight to their position
+                    step = addVec(newPos, flipVec(pos))
+                    path.append(step)
+                    pos = newPos
+                    codex = codex[1:]
+                else:
+                    raise ValueError('Could not parse direction or waypoint: ' + codex[0]) # If none of the above matched, raise an exception
+            else:       # If an actual direction could be parsed
+                path.append(step)
+                pos = addVec(pos, step)
+        return path, -1, True
+
+    # def needAgilityRolls(self, theChar, newPos):
+    #     pos = theChar.pos
+    #     for k, char in self.characters.items():
+    #         if char is not theChar:
+    #             if char.canMelee(pos):
+    #                 if not char.canMelee(newPos):
+    #                     yield char
+
+    def clampPos(self, pos):
+        x, y = pos
+        if x < 0:
+            x = 0
+        elif x >= self.size[0]:
+            x = size[0] - 1
+        if y < 0:
+            y = 0
+        elif y >= self.size[1]:
+            y = size[0] - 1
+        return x, y
+
+    def move(self, codex):
+        curChar = self.currentChar()
+        pos = curChar.pos
+        path, maxDist, stop = self.parseDirectionList(pos, codex)
+        out, newPos = curChar.testMove(path, maxDist, stop)
+        # for char in self.needAgilityRolls(curChar, newPos):
+        #     log, escape = prettyCheck(curChar.spd(), char.spd(), (curChar.secret, char.secret), aglCheckFlavors)
+        #     out += '\n\nTrying to escape {:s}:\n'.format(char.name) + log
+        #     if not escape:
+        #         return out
+        curChar.pos = self.clampPos(newPos)
         self.passTurn()
         return out
 
-    # If targetName and target are both specified, targetName wins
-    def approach(self, targetName=None, target=None, limit=-1):
-        if targetName is not None:
-            target = self.characters[targetName.lower()]
-        out = ''
-        if target is None:
-            out, newLoc = self.currentChar().approachCenter(limit=limit)
-        else:
-            out, newLoc, tLoc = self.currentChar().approachChar(target, limit=limit)
-        self.passTurn()
-        return out
 
 
 # All of the Battles known to Battlebot, with all their data, keyed by guild ID.
@@ -751,41 +889,52 @@ def basicAttack(codex, author):
     else:
        return "You need Manage Messages or Administrator permission to take control of players' characters!"
 
-def retreat(codex, author):
+def move(codex, author):
     battle = database[author.server.id]
     char = battle.currentChar()
     if author.id == char.userid or author.server_permissions.administrator or author.server_permissions.manage_messages:
-        if len(codex) > 0:
-            return battle.retreat(limit=int(codex[0])) + '\n\n' + battle.currentCharPretty()
-        else:
-            return battle.retreat() + '\n\n' + battle.currentCharPretty()
+        return battle.move(codex) + '\n\n' + battle.currentCharPretty()
     else:
        return "You need Manage Messages or Administrator permission to take control of players' characters!"
 
-# Command syntax: /approach [target] [limit]
-def approach(codex, author):
-    battle = database[author.server.id]
-    char = battle.currentChar()
-    if author.id == char.userid or author.server_permissions.administrator or author.server_permissions.manage_messages:
-        target = None   # Default values, to be used for arguments that are not specified
-        limit = -1
-        if len(codex) >= 2: # Both optional arguments are specified
-            target = codex[0]
-            limit = int(codex[1])
-        elif len(codex) == 1:   # One argument given, but I don't know which one yet
-            try:
-                limit = int(codex[0])
-            except ValueError:
-                target = codex[0]
-        return battle.approach(targetName=target, limit=limit) + '\n\n' + battle.currentCharPretty()
-    else:
-       return "You need Manage Messages or Administrator permission to take control of players' characters!"
+def map(codex, author):
+    return ''   # Gonna need to work on this one
+
+# def retreat(codex, author):
+#     battle = database[author.server.id]
+#     char = battle.currentChar()
+#     if author.id == char.userid or author.server_permissions.administrator or author.server_permissions.manage_messages:
+#         if len(codex) > 0:
+#             return battle.retreat(limit=int(codex[0])) + '\n\n' + battle.currentCharPretty()
+#         else:
+#             return battle.retreat() + '\n\n' + battle.currentCharPretty()
+#     else:
+#        return "You need Manage Messages or Administrator permission to take control of players' characters!"
+
+# # Command syntax: /approach [target] [limit]
+# def approach(codex, author):
+#     battle = database[author.server.id]
+#     char = battle.currentChar()
+#     if author.id == char.userid or author.server_permissions.administrator or author.server_permissions.manage_messages:
+#         target = None   # Default values, to be used for arguments that are not specified
+#         limit = -1
+#         if len(codex) >= 2: # Both optional arguments are specified
+#             target = codex[0]
+#             limit = int(codex[1])
+#         elif len(codex) == 1:   # One argument given, but I don't know which one yet
+#             try:
+#                 limit = int(codex[0])
+#             except ValueError:
+#                 target = codex[0]
+#         return battle.approach(targetName=target, limit=limit) + '\n\n' + battle.currentCharPretty()
+#     else:
+#        return "You need Manage Messages or Administrator permission to take control of players' characters!"
 
 def warp(codex, author):
     battle = database[author.server.id]
     char = battle.characters[codex[0].lower()]
     if author.server_permissions.administrator or author.server_permissions.manage_messages:
-        char.location = int(codex[1])
+        char.pos = int(codex[1]), int(codex[2])
         return str(char)
     else:
         return "You need Manage Messages or Administrator permission to teleport characters!"
@@ -967,12 +1116,10 @@ def getReply(content, message):
             return info(codex[1:], message.author)
         elif codex[0] == 'attack':
             return basicAttack(codex[1:], message.author)
-        elif codex[0] == 'approach':
-            return approach(codex[1:], message.author)
-        elif codex[0] == 'retreat':
-            return retreat(codex[1:], message.author)
         elif codex[0] == 'pass':
             return passTurn(codex[1:], message.author)
+        elif codex[0] == 'move':
+            return move(codex[1:], message.author)
         elif codex[0] == 'clear':
             return clearBattle(codex[1:], message.author)
         elif codex[0] == 'delete':
@@ -1000,7 +1147,7 @@ async def on_message(message):
     except Exception as err:
         await client.send_message(message.channel, "`" + traceback.format_exc() + "`")
 
-CURRENT_DB_VERSION = 2
+CURRENT_DB_VERSION = 3
 
 def updateDBFormat():
     if 'version' not in database or database['version'] < CURRENT_DB_VERSION:
@@ -1009,8 +1156,9 @@ def updateDBFormat():
         for k, v in database.items():
             if k != 'version':
                 # Battle attributes: characters, participants, turn, id, name, radius
-                if not hasattr(v, 'radius'):
-                    v.radius = -1
+                if not hasattr(v, 'size'):
+                    v.size = (1024, 1024)
+                    delattr(v, 'radius')
                 for l, w in v.characters.items():
                     # Character attributes: username, userid, name, race, size, statPoints, baseStats, abilities, modifiers, health, location, secret
                     if not hasattr(w, 'statPoints'):
@@ -1036,6 +1184,9 @@ def updateDBFormat():
                         w.location = 0
                     if not hasattr(w, 'secret'):
                         w.secret = False
+                    if not hasattr(w, 'pos'):
+                        w.pos = (0, 0)
+                        delattr(w, 'location')
 
 token = ''
 
