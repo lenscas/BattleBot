@@ -601,6 +601,8 @@ Health: {:d}""".format(self.username, self.userid, self.name, self.race, self.si
     def canMelee(self, pos):
         return distance(pos, self.pos) < BASE_RANGE
 
+    def inBox(self, minX, maxX, minY, minY):
+        return minX <= self.pos[0] <= maxX and minY <= self.pos[1] <= maxY
 
     # # Retreat ability. Roll speed, and add the result to this chracter's location. Return (logstring, newLocation)
     # def retreat(self, limit=-1):
@@ -806,6 +808,44 @@ class Battle:
         self.passTurn()
         return out
 
+    def map(self, corner1, corner2, scale=1):
+        minX = min(corner1[0], corner2[0])
+        minY = min(corner1[1], corner2[1])
+        minX = max(corner1[0], corner2[0]) + 1
+        minY = max(corner1[1], corner2[1]) + 1
+        theMap = []
+        abbrevs = {}
+        repeats = 0
+        for x in range(minX, maxX, scale):
+            row = []
+            for y in range(maxY, minY, -scale):
+                tile = '  '
+                chars = []
+                for k, char in self.characters.items():
+                    if char.inBox(x, x + scale - 1, y - scale + 1, y):
+                        chars.append(char)
+                        if tile == '  ':
+                            tile = char.name[0:2]
+                        elif tile not in abbrevs:
+                            tile = '{:02d}'.format(repeats)
+                            abbrevs[tile] = chars   # This makes abbrevs[tile] be a *reference* to chars, right? I hope?
+                            repeats += 1
+                row.append(tile)
+            theMap.append(row)
+        return theMap, abbrevs
+
+    def formatMap(self, corner1, corner2, scale=1):
+        theMap, abbrevs = self.map(self, corner1, corner2, scale)
+        out = ''
+        for k, v in sorted(abbrevs.items()):
+            out += '{} = {!s}\n'.format(k, v)
+        for row in theMap:
+            out += '\n`'
+            for tile in row:
+                out += tile
+            out += '`'
+        return out
+
 
 
 # All of the Battles known to Battlebot, with all their data, keyed by guild ID.
@@ -897,8 +937,39 @@ def move(codex, author):
     else:
        return "You need Manage Messages or Administrator permission to take control of players' characters!"
 
+# /map
+# /map scale
+# /map centerX centerY
+# /map centerX canterY radius
+# /map x1 x2 y1 y2
+# /map x1 x2 y1 y2 scale
 def map(codex, author):
-    return ''   # Gonna need to work on this one
+    battle = database[author.server.id]
+    if len(codex) == 0:
+        size = max(battle.size)
+        scale = math.ceil(size / 50)
+        return battle.formatMap((0, 0), addVec(battle.size, (-1, -1)), scale)
+    elif len(codex) == 1:
+        return battle.formatMap((0, 0), addVec(battle.size, (-1, -1)), int(codex[0]))
+    elif len(codex) == 2:
+        center = (int(codex[0]), int(codex[1]))
+        corner1 = battle.clampPos(addVec(center, (-25, -25)))
+        corner2 = battle.clampPos(addVec(center, (25, 25)))
+        return battle.formatMap(corner1, corner2, 1))
+    elif len(codex) == 3:
+        center = (int(codex[0]), int(codex[1]))
+        corner1 = battle.clampPos(addVec(center, (-25, -25)))
+        corner2 = battle.clampPos(addVec(center, (25, 25)))
+        return battle.formatMap(corner1, corner2, int(codex[2])))
+    elif len(codex) == 4:
+        corner1 = battle.clampPos((int(codex[0]), int(codex[2])))
+        corner2 = battle.clampPos((int(codex[1]), int(codex[3])))
+        return battle.formatMap(corner1, corner2, 1))
+    else:
+        corner1 = battle.clampPos((int(codex[0]), int(codex[2])))
+        corner2 = battle.clampPos((int(codex[1]), int(codex[3])))
+        return battle.formatMap(corner1, corner2, int(codex[4])))
+
 
 # def retreat(codex, author):
 #     battle = database[author.server.id]
