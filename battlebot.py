@@ -432,8 +432,20 @@ def parseDirection(codex):
         return coord1, codex[1:]
     if (coord1[0] == 0 and coord2[1] == 0) or (coord1[1] == 0 and coord2[0] == 0):
         return addVec(coord1, coord2), codex[2:]
-    else:
-        return coord1, codex[1:]
+    return coord1, codex[1:]
+
+# Used to move a point into the battlefield, if it is not already
+def clampPosWithinField(pos, fieldSize):
+    x, y = pos
+    if x < 0:
+        x = 0
+    elif x >= fieldSize[0]:
+        x = fieldSize[0] - 1
+    if y < 0:
+        y = 0
+    elif y >= fieldSize[1]:
+        y = fieldSize[0] - 1
+    return x, y
 
 
 ##################################################
@@ -576,7 +588,8 @@ Health: {:d}""".format(self.username, self.userid, self.name, self.race, self.si
     # Movement ability. Roll speed, then move the Character's coordinates along the specified [(dx, dy), ...] path, up to the maximum distance.
     # If maxDist is positive, the Character will try to move exactly that distance, continuing beyond the end of the path if necessary and ignoring the stop parameter.
     # If stop == False, when the Character reaches the end of the path, they will continue moving in that direction as far as the speed roll and maxDist permit.
-    def testMove(self, path, maxDist, stop):
+    # size is the size of the battlefield
+    def testMove(self, path, maxDist, stop, size):
         out, dist = prettyRoll(self.spd(), secret=self.secret)
         pos = self.pos
         if maxDist >= 0:        # Set the distance to travel to either the roll or the maxDist parameter, if given, whichever is less.
@@ -595,13 +608,14 @@ Health: {:d}""".format(self.username, self.userid, self.name, self.race, self.si
                 dist -= mag
         if dist > 0 and magnitude(path[-1]) > 0:        # If character can travel any farther and the last waypoint isn't "go nowhere",
             pos = addVec(pos, setMag(path[-1], dist))   # move character in the direction of the last waypoint as far as possible
+        pos = clampPosWithinField(pos, size)
         return out + '\nMoved from {!s} to {!s}'.format(self.pos, pos), pos
 
     # Will be fancier once abilities are in
     def canMelee(self, pos):
         return distance(pos, self.pos) < BASE_RANGE
 
-    def inBox(self, minX, maxX, minY, minY):
+    def inBox(self, minX, maxX, minY, maxY):
         return minX <= self.pos[0] <= maxX and minY <= self.pos[1] <= maxY
 
     # # Retreat ability. Roll speed, and add the result to this chracter's location. Return (logstring, newLocation)
@@ -673,8 +687,7 @@ class Battle:
                 ties[index:index] = [char] # Insert char at a random location within the ties
                 self.participants[firstEq:firstLess] = ties # and put them back into participants
                 self.turn += 1 if firstLess + index <= self.turn else 0
-            char.pos[0] = min(char.pos[0], self.size[0])
-            char.pos[1] = min(char.pos[1], self.size[1])
+            char.pos = clampPosWithinField(char.pos, self.size)
 
     # No undefined behavior here
     def addParticipant(self, name):
@@ -782,18 +795,6 @@ class Battle:
     #                 if not char.canMelee(newPos):
     #                     yield char
 
-    def clampPos(self, pos):
-        x, y = pos
-        if x < 0:
-            x = 0
-        elif x >= self.size[0]:
-            x = size[0] - 1
-        if y < 0:
-            y = 0
-        elif y >= self.size[1]:
-            y = size[0] - 1
-        return x, y
-
     def move(self, codex):
         curChar = self.currentChar()
         pos = curChar.pos
@@ -804,30 +805,31 @@ class Battle:
         #     out += '\n\nTrying to escape {:s}:\n'.format(char.name) + log
         #     if not escape:
         #         return out
-        curChar.pos = self.clampPos(newPos)
-        self.passTurn()
+        curChar.pos = newPos
         return out
 
-    def map(self, corner1, corner2, scale=1):
+    def genMap(self, corner1, corner2, scale=1):
         minX = min(corner1[0], corner2[0])
         minY = min(corner1[1], corner2[1])
-        minX = max(corner1[0], corner2[0]) + 1
-        minY = max(corner1[1], corner2[1]) + 1
+        maxX = max(corner1[0], corner2[0])# + 1
+        maxY = max(corner1[1], corner2[1])# + 1
         theMap = []
         abbrevs = {}
         repeats = 0
-        for x in range(minX, maxX, scale):
+        for x in range(maxX, minX - 1, -scale):
             row = []
-            for y in range(maxY, minY, -scale):
+            for y in range(minY, maxY + 1, scale):
                 tile = '  '
+                isNumericTile = False
                 chars = []
-                for k, char in self.characters.items():
-                    if char.inBox(x, x + scale - 1, y - scale + 1, y):
-                        chars.append(char)
+                for char in self.participants:
+                    if char.inBox(x - scale + 1, x, y, y + scale - 1):
+                        chars.append(char.name)
                         if tile == '  ':
-                            tile = char.name[0:2]
-                        elif tile not in abbrevs:
+                            tile = '{:2s}'.format(char.name[0:2])
+                        elif not isNumericTile:
                             tile = '{:02d}'.format(repeats)
+                            isNumericTile = True
                             abbrevs[tile] = chars   # This makes abbrevs[tile] be a *reference* to chars, right? I hope?
                             repeats += 1
                 row.append(tile)
@@ -835,15 +837,23 @@ class Battle:
         return theMap, abbrevs
 
     def formatMap(self, corner1, corner2, scale=1):
-        theMap, abbrevs = self.map(self, corner1, corner2, scale)
+        theMap, abbrevs = self.genMap(corner1, corner2, scale)
         out = ''
         for k, v in sorted(abbrevs.items()):
             out += '{} = {!s}\n'.format(k, v)
-        for row in theMap:
-            out += '\n`'
-            for tile in row:
-                out += tile
-            out += '`'
+        minX = min(corner1[0], corner2[0])
+        minY = min(corner1[1], corner2[1])
+        maxX = max(corner1[0], corner2[0])# + 1
+        maxY = max(corner1[1], corner2[1])# + 1
+        coords = ''
+        for i in range(minX, maxX, scale * 2):
+            coords += '{:<4d}'.format(i)
+        out += '\n`={}=`'.format(coords[:len(theMap[0]) * 2])
+        for r in range(len(theMap)):
+            out += '\n`|'
+            for c in range(len(theMap[0])):
+                out += theMap[r][c]
+            out += '|`'
         return out
 
 
@@ -933,7 +943,7 @@ def move(codex, author):
     battle = database[author.server.id]
     char = battle.currentChar()
     if author.id == char.userid or author.server_permissions.administrator or author.server_permissions.manage_messages:
-        return battle.move(codex) + '\n\n' + battle.currentCharPretty()
+        return battle.move(codex) + '\n\nYou may /attack a nearby character this turn, or /pass to opt out.'
     else:
        return "You need Manage Messages or Administrator permission to take control of players' characters!"
 
@@ -943,32 +953,37 @@ def move(codex, author):
 # /map centerX canterY radius
 # /map x1 x2 y1 y2
 # /map x1 x2 y1 y2 scale
-def map(codex, author):
+def showMap(codex, author):
     battle = database[author.server.id]
+    out = ''
     if len(codex) == 0:
         size = max(battle.size)
-        scale = math.ceil(size / 50)
-        return battle.formatMap((0, 0), addVec(battle.size, (-1, -1)), scale)
+        scale = math.ceil(size / 26)
+        out =  battle.formatMap((0, 0), addVec(battle.size, (-1, -1)), scale)
     elif len(codex) == 1:
-        return battle.formatMap((0, 0), addVec(battle.size, (-1, -1)), int(codex[0]))
+        out = battle.formatMap((0, 0), addVec(battle.size, (-1, -1)), int(codex[0]))
     elif len(codex) == 2:
         center = (int(codex[0]), int(codex[1]))
-        corner1 = battle.clampPos(addVec(center, (-25, -25)))
-        corner2 = battle.clampPos(addVec(center, (25, 25)))
-        return battle.formatMap(corner1, corner2, 1))
+        corner1 = clampPosWithinField(addVec(center, (-13, -13)), battle.size)
+        corner2 = clampPosWithinField(addVec(center, (13, 13)), battle.size)
+        out = battle.formatMap(corner1, corner2, 1)
     elif len(codex) == 3:
         center = (int(codex[0]), int(codex[1]))
-        corner1 = battle.clampPos(addVec(center, (-25, -25)))
-        corner2 = battle.clampPos(addVec(center, (25, 25)))
-        return battle.formatMap(corner1, corner2, int(codex[2])))
+        corner1 = clampPosWithinField(addVec(center, (-13, -13)), battle.size)
+        corner2 = clampPosWithinField(addVec(center, (13, 13)), battle.size)
+        out = battle.formatMap(corner1, corner2, int(codex[2]))
     elif len(codex) == 4:
-        corner1 = battle.clampPos((int(codex[0]), int(codex[2])))
-        corner2 = battle.clampPos((int(codex[1]), int(codex[3])))
-        return battle.formatMap(corner1, corner2, 1))
+        corner1 = clampPosWithinField((int(codex[0]), int(codex[2])), battle.size)
+        corner2 = clampPosWithinField((int(codex[1]), int(codex[3])), battle.size)
+        out = battle.formatMap(corner1, corner2, 1)
     else:
-        corner1 = battle.clampPos((int(codex[0]), int(codex[2])))
-        corner2 = battle.clampPos((int(codex[1]), int(codex[3])))
-        return battle.formatMap(corner1, corner2, int(codex[4])))
+        corner1 = clampPosWithinField((int(codex[0]), int(codex[2])), battle.size)
+        corner2 = clampPosWithinField((int(codex[1]), int(codex[3])), battle.size)
+        out = battle.formatMap(corner1, corner2, int(codex[4]))
+    if len(out) >= 2000:
+        return 'Map too large. Try decreasing the size of increasing the scale factor.'
+    else:
+        return out
 
 
 # def retreat(codex, author):
@@ -1191,6 +1206,8 @@ def getReply(content, message):
             return passTurn(codex[1:], message.author)
         elif codex[0] == 'move':
             return move(codex[1:], message.author)
+        elif codex[0] == 'map':
+            return showMap(codex[1:], message.author)
         elif codex[0] == 'clear':
             return clearBattle(codex[1:], message.author)
         elif codex[0] == 'delete':
