@@ -1128,12 +1128,15 @@ Want to host BattleBot yourself, look at the sourcecode, or file a bug report? T
 /help player: Useful commands for players in an RP
 /help battle: Commands for use during a battle
 /help move: Detailed information on the /move command
+/help move2: /move, page 2
 /help map: Detailed information on the /map command
 /help stats: How stats work in BattleBot
 /help ability: Deailed information on abilities and how to create them (coming soon!)
 /help rpn: Crash course on Reverse Polish Notation
 /help gm: Commands for GMs
-/help calc: Commands that roll dice and calculate stuff. Mostly obsoleted by all the above.""",
+/help calc: Commands that roll dice and calculate stuff. Mostly obsoleted by all the above.
+
+**Do Note:** Many of these help pages are quite long. Please do not use them outside of your server's designated spam channel, or else the GM (and the other players) will be very annoyed with you.""",
         'player': """Player Commands
 These commands are usable by all players, and do not typically have any impact on the state of the battle.
 
@@ -1172,7 +1175,8 @@ Alternatively, you can type out the name of any character in the battle in place
 will interpret that as "go straight toward the location of the named character." It's actually treated as a
 direction internally, and I will use that term interchangably to refer to both.
 
-The full argument format of /move is this:
+Type /help move2 to continue reading""",
+        'move2': """The full argument format of /move is this:
 /move direction [direction | + direction | - dist] ... [+ | dist]
 Remember, you can use names as waypoints in place of directions.
 Essentially, it takes a list of directions (and waypoints), and the character will follow that path as far as the speed roll permits.
@@ -1192,10 +1196,47 @@ means "move 2 tiles north, then in the direction of 1S 5E, and keep going in tha
 If the last argument is an integer, it means "move no more than this many tiles, continuing past the end of the path in the direction of the last segment if necessary."
 /move N E 25
 will be interpreted as "move northeast as far as possible, up to 25 tiles." """,
-        'map': """The /map Command""",      #TODO
-        'stats': """Stats and How They Work""",    #TODO
+        'map': """The /map Command
+
+/map, well, draws a map of the battlefield. It, too, is very flexible, though not nearly as complex as /move.
+The default size of the map is 26x26. This nicely fits within a Discord post.
+
+/map: if given no arguments, map the entire battlefield, scaled to fit within a single post.
+/map scale: draw the whole battlefield, using the specified scale factor. Bigger numbers yield a smaller, more zoomed-out map.
+/map x y: draw a map of the default size centered on the given location, with scale factor 1 (i.e. 1 map tile = 1 grid tile)
+/map x y radius: draw a map of the given size centered on the given point, with scale factor 1.
+/map xMin xMax yMin yMax: draw a map covering the given area
+/map xMin xMax yMin yMax scale: draw a map covering the given area, with the given scale factor. Again, bigger scale factor = more zoomed-out map.
+
+The map will show characters with the first two letters in their name. If two characters exist in the same tile, BattleBot will use a number instead and display a legend showing who all is represented by each number.
+
+I plan to have /map automatically give a view of the most interesting area of the battlefield eventually, but I'm not quite entirely sure how to do that. Any ideas?""",
+        'stats': """Stats and How They Work
+
+Battlebot's stat system is a bit complex, so I thought I ought to explain it here.
+
+Each race is given a set of default stats. Currently, these depend solely on the size tier of the species, but if Lens wishes, I can give each species its own default stats quite easily. Just say the word.
+Type /calc defaultstats to see what these size-based stats are.
+
+Anyhow, each player character is given a set number of stat points, as mandated by the GM, to distribute among the six stats as they wish. Each point allocated to a stat increases it by *one eighth of the stat's default value*.
+
+For instance, werecats have 16 base HP. A werecat with 0 points allocated to HP will have, well, 16 HP. No points allocated = no change in the stat.
+A werecat with one point in HP will have 16 + (1 * 16 / 8) = 18 HP.
+A werecat with 4 points in HP will have 16 + (4 * 16 / 8) = 24 HP.
+
+Allocating 4 points will multiply the default stat by 1.5, and allocating 8 points will double it. It's pretty linear.
+
+What are these stats, you ask? Well.
+HP: Health points. Basically how much damage you can take before you die.
+ACC: Accuracy. The more of this you have, the more likely you'll actually be able to land an attack.
+EVA: Evasion. The more of this you have, the better your chances of dodging an attack and taking no damage at all.
+ATK: Attack. How hard you hit.
+DEF: Defense. How well you are able to resist being hit.
+SPD: Speed. Determines order of initiative and how quickly you can move around the battlefield.
+""",
         'ability': """**Not Yet Implemented**""",
         'rpn': """Reverse Polish Notation
+
 RPN is a way to write mathematical formulae and such. It will seem a bit strange to anyone used to the familiar infix notation, but is very easy for computers to understand.
 RPN is a *postfix* notation, meaning that all operators come *after* the things they operate on. For example:
 2 3 4 + 5 - *
