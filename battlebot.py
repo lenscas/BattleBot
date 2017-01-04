@@ -392,6 +392,7 @@ def distance(pos1, pos2):
     return math.hypot(pos1[0] - pos2[0], pos1[1] - pos2[1])
 
 # If you're at (0, 0) and you move dist units in the direction of target, this will return where you wind up, rounded to integers as an (x, y) pair.
+# Rounds coordinates toward 0, so this will never return a vector with magnitude greater than magn. I think. Right?
 def setMag(target, dist):
     magn = math.hypot(target[0], target[1])
     x = int(target[0] * dist / magn)
@@ -759,13 +760,23 @@ class Battle:
         self.passTurn()
         return out
 
-    # Syntax: /move [[distance]cardinal | name] ... [+ | maxDistance]
+    # Returns (step, restOfCodex). Just accounts for using a name as a waypoint. Other stuff will return (None, theWholeCodex), just like parseDirection().
+    def parseStep(self, codex, curPos):
+        step, codex = parseDirection(codex)
+        if step is None:    # Current element of codex cannot be parsed as a direction because it is not formatted like '2W' or '5s'
+            if codex[0].lower() in self.characters:     # If the element is the name of a character (case-insensitive)
+                newPos = self.characters[codex[0].lower()].pos  # add a segment going straight to their position
+                step = addVec(newPos, flipVec(curPos))
+                codex = codex[1:]
+        return step, codex
+
+    # Syntax: /move [[distance]cardinal | name | + | - distTweak] ... [+ | maxDistance]
     # Return: (path, maxDist, stop), just like the parameters in Character.testMove()
     def parseDirectionList(self, startPos, codex):
         path = []
         pos = startPos
         while len(codex) > 0:
-            step, codex = parseDirection(codex)
+            step, codex = self.parseStep(codex, pos)
             if step is None:    # Current element of codex cannot be parsed as a direction because it is not formatted like '2W' or '5s'
                 if len(codex) == 1: # Last element of codex may optionally use special syntax
                     try:
@@ -774,12 +785,19 @@ class Battle:
                     except ValueError:
                         if codex[0] == '+':     # Last element being a + sign means "keep going in this direction"
                             return path, -1, False
-                if codex[0].lower() in self.characters:     # If the element is the name of a character (case-insensitive)
-                    newPos = self.characters[codex[0].lower()].pos  # add a segment going straight to their position
-                    step = addVec(newPos, flipVec(pos))
-                    path.append(step)
-                    pos = newPos
-                    codex = codex[1:]
+                elif codex[0] == '+':       # Add this step to the last one in the codex
+                    nextStep, codex = self.parseStep(codex, pos)
+                    if nextStep != None:
+                        path[-1] = addVec(path[-1], nextStep)
+                        pos = addVec(pos, nextStep)
+                elif codex[0] == '-':   # Parse the next entry as an integer, and subtract it from the magnitude of the next step
+                    try:
+                        d = int(codex[0])
+                        backStep = setMag(path[-1], -d)
+                        path[-1] = addVec(path[-1], backStep)
+                        pos = addVec(pos, backStep)
+                    except ValueError:
+                        raise ValueError('Expected an integer after - sign; got ' + codex[0])
                 else:
                     raise ValueError('Could not parse direction or waypoint: ' + codex[0]) # If none of the above matched, raise an exception
             else:       # If an actual direction could be parsed
@@ -799,7 +817,7 @@ class Battle:
         curChar = self.currentChar()
         pos = curChar.pos
         path, maxDist, stop = self.parseDirectionList(pos, codex)
-        out, newPos = curChar.testMove(path, maxDist, stop)
+        out, newPos = curChar.testMove(path, maxDist, stop, self.size)
         # for char in self.needAgilityRolls(curChar, newPos):
         #     log, escape = prettyCheck(curChar.spd(), char.spd(), (curChar.secret, char.secret), aglCheckFlavors)
         #     out += '\n\nTrying to escape {:s}:\n'.format(char.name) + log
@@ -969,9 +987,10 @@ def showMap(codex, author):
         out = battle.formatMap(corner1, corner2, 1)
     elif len(codex) == 3:
         center = (int(codex[0]), int(codex[1]))
-        corner1 = clampPosWithinField(addVec(center, (-13, -13)), battle.size)
-        corner2 = clampPosWithinField(addVec(center, (13, 13)), battle.size)
-        out = battle.formatMap(corner1, corner2, int(codex[2]))
+        radius = int(codex[2])
+        corner1 = clampPosWithinField(addVec(center, (-radius, -radius)), battle.size)
+        corner2 = clampPosWithinField(addVec(center, (radius, radius)), battle.size)
+        out = battle.formatMap(corner1, corner2, 1)
     elif len(codex) == 4:
         corner1 = clampPosWithinField((int(codex[0]), int(codex[2])), battle.size)
         corner2 = clampPosWithinField((int(codex[1]), int(codex[3])), battle.size)
@@ -1087,8 +1106,133 @@ async def on_ready():
     print('Bot ID: ' + str(client.user.id))
     print('Invite Link: ' + get_invite(client.user.id))
 
-help_calc = """Calculation Commands:
-/calc roll XdY: Roll X dYs and add the results.
+help_dict = {'bot': """Welcome to BattleBot!
+This is a Discord bot written by Someone Else 37 using discord.py.
+It rolls dice and things, and has a multitude of commands useful for anyone GMing a role-play using the
+combat system lenscas and I developed for ANWA. It is based off the combat system used in BtNS and ABG.
+In fact, BattleBot can just about handle all of the mechanics of an ANWA RP on its own. Just add flavor.
+Or, at least, it will once it's complete. Battlebot is a work in progress.
+
+Battlebot kind of grew out of an simple dicebot written by Eruantien. Much thanks to him for getting me started.
+
+For more info on how to use BattleBot, type /help contents
+
+Want to add BattleBot to your server? Type /invite
+\*Note, this may not actually give you a functional invite link. I'm not sure why.
+
+Want to host BattleBot yourself, look at the sourcecode, or file a bug report? Type /github""",
+        'contents': """Table of Contents
+
+/help bot: General bot information
+/help contents: View this page again
+/help player: Useful commands for players in an RP
+/help battle: Commands for use during a battle
+/help move: Detailed information on the /move command
+/help map: Detailed information on the /map command
+/help stats: How stats work in BattleBot
+/help ability: Deailed information on abilities and how to create them (coming soon!)
+/help rpn: Crash course on Reverse Polish Notation
+/help gm: Commands for GMs
+/help calc: Commands that roll dice and calculate stuff. Mostly obsoleted by all the above.""",
+        'player': """Player Commands
+These commands are usable by all players, and do not typically have any impact on the state of the battle.
+
+/roll XdY: Roll X dYs and add the results.
+/defaultstats: Print out the default stats for all the size tiers.
+/makechar name race hp acc eva atk dfn spd: Create a character with the given name, race, and stat point distribution.
+    Accepted races: faerie, elf, werecat, elfcat, cyborg, robot, kraken, elfship, steamship
+/delete name: Delete a character. Only works on characters you created. Warning, this is permanent!
+/join name: Join the battle ongoing on your server.
+    Support for using /join with no argument to automatically add one of your characters is planned, but NYI.
+/list: List a bunch of info about the current state of the battle- who's participating, turn order, etc.
+/list name: Show all the info about the named character.
+/invite: Show BattleBot's invite link.
+/github: Show the link to this bot's sourcecode on GitHub.""",
+        'battle': """Battle Commands
+These commands are to be used during battle, and can only be used by the active player or a GM. See /help gm for more info.
+
+/attack name: Punch the named character with a basic physical attack.
+    This and the next few commands only work during your turn.
+/move ...: Move along the specified path, as far as your speed roll allows.
+    Does not use up your turn: you can use /attack or /ability immediately after you move, or /pass to do nothing.
+    See /help move for info on the path syntax.
+/ability ...: Use an ability. Not yet implemented, but coming soon!
+/pass: Pass your turn. Simple enough.""",
+        'move': """The /move Command
+This command allows players to move about the battlefield. Its syntax is quite flexible and powerful, if a bit complex.
+
+The simplest way to use /move is to simply give it a pair of NS/WE coordinates. Example:
+/move 5N 3E
+will move the character along a straight line to a point at most 5 units north and 3 units east of their current position.
+Henceforth, I will call this bit of syntax a "direction". The coordinates can be specified in any order, and lowercase letters work fine.
+You can even leave out the NS or WE coordinate entirely. /move 3s means "go 3 units due south".
+Furthermore, if you leave out the distance component, it will default to 1. /move N means "go one tile north".
+
+Alternatively, you can type out the name of any character in the battle in place of coordinates, and BattleBot
+will interpret that as "go straight toward the location of the named character." It's actually treated as a
+direction internally, and I will use that term interchangably to refer to both.
+
+The full argument format of /move is this:
+/move direction [direction | + direction | - dist] ... [+ | dist]
+Remember, you can use names as waypoints in place of directions.
+Essentially, it takes a list of directions (and waypoints), and the character will follow that path as far as the speed roll permits.
+
+Placing a + sign between two directions will cause them to be added together, and the character will perform both at once by traveling a straight line. Example:
+/move lenscas + 2E
+will be interpreted as "go two tiles to the east of lenscas".
+
+Following a direction by a - sign, then an integer distance, will cause the character to stop short of where the previous direction command would've taken them, by no more than the specified distance in tiles. If you've got an ability with a maximum range of 16, for instance, you can type
+/move lenscas - 16
+to move just within range.
+
+The list of directions can also be suffixed with either a + sign or an integral distance.
+/move 2N 1S 5E +
+means "move 2 tiles north, then in the direction of 1S 5E, and keep going in that direction as far as the speed roll permits."
+
+If the last argument is an integer, it means "move no more than this many tiles, continuing past the end of the path in the direction of the last segment if necessary."
+/move N E 25
+will be interpreted as "move northeast as far as possible, up to 25 tiles." """,
+        'map': """The /map Command""",      #TODO
+        'stats': """Stats and How They Work""",    #TODO
+        'ability': """**Not Yet Implemented**""",
+        'rpn': """Reverse Polish Notation
+RPN is a way to write mathematical formulae and such. It will seem a bit strange to anyone used to the familiar infix notation, but is very easy for computers to understand.
+RPN is a *postfix* notation, meaning that all operators come *after* the things they operate on. For example:
+2 3 4 + 5 - *
+The interpreter will read this string with the help of a stack. Whenever it encounters a number, it will push that number onto the stack. After reading the 2, the stack will look like this:
+`[2]`
+Then, after the 3 and 4 are read:
+`[2, 3, 4]`
+Note that I'm showing the top of the stack as the rightmost end of this list.
+Most operators, including + and *, will pop *two* values off the stack, operate on them, and push the result back onto the stack.
+Upon reading the + sign, the interpreter will pop the 4 and 3 off the stack, add them to get 7, and push the 7 back onto the stack. The stack now looks like this:
+`[2, 7]`
+Next comes the 5.
+`[2, 7, 5]`
+The - sign will pop the 5 and 7. 7-5=2:
+`[2, 2]`
+And, finally, * will multiply the 2s.
+`[4]`
+The input has been exhausted, and the stack has only one element. That whole formula thus evaluates to 4.
+And indeed, 2 * ((3 + 4) - 5) = 4.
+
+RPN allows math formulae to be written in a perfectly unambiguous manner that is very easy to parse. It's quite nice.""",
+        'gm': """GM commands
+These commands/behaviors only function if you are a GM, meaning that you have either Administrator or Manage Messages permission on the server.
+
+/pass, /attack, /delete, etc: GMs can use these commands to control/delete other players' characters.
+/clear: Clear the current battle and heal and respawn all participants.
+/warp name dist: Teleports the named character to the given location distance.
+/sethp name [health]: Sets the named character's current health, or to their maximum health is none is specified.
+/togglesecret name: Toggle whether the named character's stats are hidden from players.
+/gmattack name acc atk [secret?]: Perform at attack with the given Accuracy and Attack against the named character.
+    If 0 or a negative number is specified for acc or atk, those stats will not be rolled.
+    If anything at all is given for the fourth parameter, the bot will not echo the Accuracy or Attack specified.
+    It's up to you to delete/edit your post to prevent players from reading the stats from it.""",
+        'calc': """Calculation Commands
+These just roll dice and calculate stuff. They have no effect on the battle at all.
+
+/calc roll XdY: Roll X dYs and add the results. Alias of /roll.
 /calc check acc eva: Roll a BtNS-style accuracy check.
 /calc damage atk def: Do a damage roll in my fancy BtNS-inspired way.
 /calc avgdmg atk def: Do 1000 damage rolls, calculate a bunch of summary statistics, and produce a histogram.
@@ -1102,47 +1246,10 @@ help_calc = """Calculation Commands:
     /calc rangelookup ortBOW works fine.
 /calc approach r spd [r2]: Do an approach roll, approaching the melee circle or, optionally, another character at range r2.
 /calc retreat r spd: Do a retreat roll.
-/calc defaultstats: Print out the default stats for all the size tiers.
+/calc defaultstats: Print out the default stats for all the size tiers. Alias of /defaultstats.
 /calc testStatRoll n bucketSize: Test my new statical dice-rolling code against the count-and-add code by rolling n d10s.
     Returns a histogram. Each row is a bucket of bucketSize, collecting all rolls from one algorithm within its range.
-    The even-numbered rows correspond to the count-and-add algorithm; the odd ones to the new statistical algorithm.
-/calc help: show this message again."""
-
-help_gm = """GM commands:
-    The following behavior only functions if you are a GM, meaning that you have
-    either Administrator or Manage Messages permission on the server.
-/pass, /attack, /delete: GMs can use these commands to control/delete other players' characters.
-/warp name dist: Teleports the named character to the given location distance.
-/sethp name [health]: Sets the named character's current health, or to their maximum health is none is specified.
-/togglesecret name: Toggle whether the named character's stats are hidden from players.
-/gmattack name acc atk [secret?]: Perform at attack with the given Accuracy and Attack against the named character.
-    If 0 or a negative number is specified for acc or atk, those stats will not be rolled.
-    If anything at all is given for the fourth parameter, the bot will not echo the Accuracy or Attack specified.
-    It's up to you to delete/edit your post to prevent players from reading the stats from it.
-/help gm: show this message again."""
-
-
-help_msg = """Battlebot Commands:
-/invite: Show this bot's invite link.
-/roll XdY: Roll X dYs and add the results.
-/defaultstats: Print out the default stats for all the size tiers.
-/makechar name race hp acc eva atk dfn spd: Create a character with the given name, race, and stat point distribution.
-    Accepted races: faerie, elf, werecat, elfcat, cyborg, robot, kraken, elfship, steamship
-/join name: Join the battle ongoing on your server.
-    Support for using /join with no argument to automatically add one of your characters is planned, but NYI.
-/attack name: Punch the named character with a basic physical attack.
-    This and the next few commands only work during your turn.
-/approach [target] [limit]: Approach the center of the battlefield, optionally dragging target character with you.
-/retreat [limit]: Retreat from the center of the battlefield, up to the optional limit.
-/pass: Pass your turn. Simple enough.
-/list: List a bunch of info about the current state of the battle- who's participating, turn order, etc.
-/list name: Show all the info about the named character.
-/clear: Clear the current battle and heal and respawn all participants. Only GMs can do this.
-/delete name: Delete a character. Only works on characters you created. Warning, this is permanent!
-/github: Show the link to this bot's sourcecode on GitHub.
-/help calc: Show help for all the old calculation commands.
-/help gm: Show help for the various GM commands.
-/help: Show this message again."""
+    The even-numbered rows correspond to the count-and-add algorithm; the odd ones to the new statistical algorithm."""}
 
 git_link = 'https://github.com/SomeoneElse37/BattleBot'
 
@@ -1153,8 +1260,6 @@ def getReply(content, message):
         codex = content[len(PREFIX):].split(' ');
         if codex[0] == 'calc':
             codex = codex[1:]
-            if codex[0] == 'help':
-                return help_calc
             elif codex[0] == 'roll':
                 return roll(codex[1:])
             elif codex[0] == 'check':
@@ -1185,11 +1290,11 @@ def getReply(content, message):
                 return testStatisticRolls(codex[1:])
         elif codex[0] == 'help':
             if len(codex) > 1:
-                if codex[1] == 'calc':
-                    return help_calc
-                elif codex[1] == 'gm':
-                    return help_gm
-            return help_msg
+                key = codex[1].lower()
+                if key in help_dict:
+                    return help_dict[key]
+            else:
+                return help_dict['bot']
         elif codex[0] == 'roll':
             return roll(codex[1:])
         elif codex[0] == 'defaultstats':
