@@ -1260,7 +1260,7 @@ def getReply(content, message):
         codex = content[len(PREFIX):].split(' ');
         if codex[0] == 'calc':
             codex = codex[1:]
-            elif codex[0] == 'roll':
+            if codex[0] == 'roll':
                 return roll(codex[1:])
             elif codex[0] == 'check':
                 return check(codex[1:])
