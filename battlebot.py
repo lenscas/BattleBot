@@ -649,6 +649,8 @@ class Battle:
         self.id = guild.id      # Guild ID
         self.name = guild.name  # Guild Name
         self.size = (2048, 2048)
+        self.moved = false      # True if the current character has /moved during their turn
+        self.attacked = false   # True if the current character has /attacked or used an /ability during their turn
 
     def addCharacter(self, char):
         if char.name.lower() not in self.characters:
@@ -739,6 +741,8 @@ class Battle:
             pass
 
     def passTurn(self):
+        self.moved = False
+        self.attacked = False
         if self.turn == -1:
             self.turn = 1
         else:
@@ -746,7 +750,19 @@ class Battle:
         if self.turn >= len(self.participants):
             self.turn = 0
 
+    def availableActions(self):
+        if self.moved and self.attacked:
+            return ''
+        elif self.attacked:
+            return '\n\nYou may use /move to move, or /pass to pass your turn.'
+        elif self.moved:
+            return '\n\nYou may use /attack to perform a basic physical attack, /ability to use an ability, or /pass to pass your turn.'
+        else:
+            return '\n\nYou may use /move and either /attack or /ability this turn, if you wish.'
+
     def basicAttack(self, targetName):
+        if self.attacked:
+            return self.availableActions()
         user = self.currentChar()
         target = self.characters[targetName.lower()]
         if target not in self.participants:
@@ -757,7 +773,10 @@ class Battle:
         if target.health <= 0:
             self.removeParticipantByChar(target)
             target.respawn()
-        self.passTurn()
+        self.attacked = True
+        out += self.availableActions()
+        if self.moved:
+            self.passTurn()
         return out
 
     # Returns (step, restOfCodex). Just accounts for using a name as a waypoint. Other stuff will return (None, theWholeCodex), just like parseDirection().
@@ -786,16 +805,19 @@ class Battle:
                         if codex[0] == '+':     # Last element being a + sign means "keep going in this direction"
                             return path, -1, False
                 elif codex[0] == '+':       # Add this step to the last one in the codex
+                    codex = codex[1:]
                     nextStep, codex = self.parseStep(codex, pos)
                     if nextStep != None:
                         path[-1] = addVec(path[-1], nextStep)
                         pos = addVec(pos, nextStep)
                 elif codex[0] == '-':   # Parse the next entry as an integer, and subtract it from the magnitude of the next step
+                    codex = codex[1:]
                     try:
                         d = int(codex[0])
-                        backStep = setMag(path[-1], -d)
+                        backStep = flipVec(setMag(path[-1], d))
                         path[-1] = addVec(path[-1], backStep)
                         pos = addVec(pos, backStep)
+                        codex = codex[1:]
                     except ValueError:
                         raise ValueError('Expected an integer after - sign; got ' + codex[0])
                 else:
@@ -814,6 +836,8 @@ class Battle:
     #                     yield char
 
     def move(self, codex):
+        if self.moved:
+            return self.availableActions()
         curChar = self.currentChar()
         pos = curChar.pos
         path, maxDist, stop = self.parseDirectionList(pos, codex)
@@ -824,6 +848,10 @@ class Battle:
         #     if not escape:
         #         return out
         curChar.pos = newPos
+        self.moved = True
+        out += self.availableActions()
+        if self.attacked:
+            self.passTurn()
         return out
 
     def genMap(self, corner1, corner2, scale=1):
@@ -834,9 +862,9 @@ class Battle:
         theMap = []
         abbrevs = {}
         repeats = 0
-        for x in range(maxX, minX - 1, -scale):
+        for y in range(maxY, minY - 1, -scale):
             row = []
-            for y in range(minY, maxY + 1, scale):
+            for x in range(minX, maxX + 1, scale):
                 tile = '  '
                 isNumericTile = False
                 chars = []
@@ -864,8 +892,8 @@ class Battle:
         maxX = max(corner1[0], corner2[0])# + 1
         maxY = max(corner1[1], corner2[1])# + 1
         coords = ''
-        for i in range(minX, maxX, scale * 2):
-            coords += '{:<4d}'.format(i)
+        for i in range(minX, maxX + scale * 2, scale * 2):
+            coords += '{:02d}  '.format(i)[-4:]
         out += '\n`={}=`'.format(coords[:len(theMap[0]) * 2])
         for r in range(len(theMap)):
             out += '\n`|'
@@ -961,7 +989,7 @@ def move(codex, author):
     battle = database[author.server.id]
     char = battle.currentChar()
     if author.id == char.userid or author.server_permissions.administrator or author.server_permissions.manage_messages:
-        return battle.move(codex) + '\n\nYou may /attack a nearby character this turn, or /pass to opt out.'
+        return battle.move(codex) + '\n\n' + battle.currentCharPretty()
     else:
        return "You need Manage Messages or Administrator permission to take control of players' characters!"
 
@@ -1157,10 +1185,11 @@ These commands are to be used during battle, and can only be used by the active 
 /attack name: Punch the named character with a basic physical attack.
     This and the next few commands only work during your turn.
 /move ...: Move along the specified path, as far as your speed roll allows.
-    Does not use up your turn: you can use /attack or /ability immediately after you move, or /pass to do nothing.
     See /help move for info on the path syntax.
 /ability ...: Use an ability. Not yet implemented, but coming soon!
-/pass: Pass your turn. Simple enough.""",
+/pass: Pass your turn. Simple enough.
+
+Note: During their turn, the active player may use both /move AND either /attack or /ability, if they wish (although they cannot use /attack and /ability in the same turn).""",
         'move': """The /move Command
 This command allows players to move about the battlefield. Its syntax is quite flexible and powerful, if a bit complex.
 
@@ -1381,7 +1410,7 @@ async def on_message(message):
     except Exception as err:
         await client.send_message(message.channel, "`" + traceback.format_exc() + "`")
 
-CURRENT_DB_VERSION = 3
+CURRENT_DB_VERSION = 5
 
 def updateDBFormat():
     if 'version' not in database or database['version'] < CURRENT_DB_VERSION:
@@ -1393,6 +1422,10 @@ def updateDBFormat():
                 if not hasattr(v, 'size'):
                     v.size = (1024, 1024)
                     delattr(v, 'radius')
+                if not hasattr(v, 'moved'):
+                    v.moved = False
+                if not hasattr(v, 'attacked'):
+                    v.attacked = False
                 for l, w in v.characters.items():
                     # Character attributes: username, userid, name, race, size, statPoints, baseStats, abilities, modifiers, health, location, secret
                     if not hasattr(w, 'statPoints'):
@@ -1421,6 +1454,10 @@ def updateDBFormat():
                     if not hasattr(w, 'pos'):
                         w.pos = (0, 0)
                         delattr(w, 'location')
+                    if hasattr(w, 'moved'):
+                        delattr(w, 'moved')
+                    if hasattr(w, 'attacked'):
+                        delattr(w, 'attacked')
 
 token = ''
 
@@ -1445,13 +1482,12 @@ try:
 except FileNotFoundError:
     print('Database could not be loaded. Creating an empty database.')
 
-
-client.run(token)  # Blocking call; execution will not continue until client.run() returns
-
-with open(datafile, 'wb') as f:
-    pickle.dump(database, f, pickle.HIGHEST_PROTOCOL)
-
-print('Database saved to disk.')
+try:
+    client.run(token)  # Blocking call; execution will not continue until client.run() returns
+finally:
+    with open(datafile, 'wb') as f:
+        pickle.dump(database, f, pickle.HIGHEST_PROTOCOL)
+    print('Database saved to disk.')
 
 #client.connect()
 
