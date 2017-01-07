@@ -470,15 +470,19 @@ def makeStatDict(hp, acc, eva, atk, dfn, spd):
     return dict(HP=hp, ACC=acc, EVA=eva, ATK=atk, DEF=dfn, SPD=spd)
 
 def makeStatsFromCodex(codex):
-    return makeStatDict(int(codex[0]), int(codex[1]), int(codex[2]), int(codex[3]), int(codex[4]), int(codex[5]))
+    if len(codex) >= 6:
+        return makeStatDict(int(codex[0]), int(codex[1]), int(codex[2]), int(codex[3]), int(codex[4]), int(codex[5]))
+    else:
+        return makeStatDict(0, 0, 0, 0, 0, 0)
 
 def defaultStats(size):
     return makeStatDict(2**(size * 2), 2**(-size + 5), 2**(-size + 5), 2**(size * 4 - 2), 2**(size * 2), 2**(size))
 
 baseStats = {
-        'faerie': defaultStats(sizeTiers['faerie']),    # Does this even work? At any rate, it'll let me
-        'elf': defaultStats(sizeTiers['elf']),          # tweak the base stats for each race individually
-        'werecat': defaultStats(sizeTiers['werecat']),  # if/when Lens decides to.
+        'faerie': defaultStats(sizeTiers['faerie']),    # This sets the base stats for each species to the default, computed from their size.
+        'elf': defaultStats(sizeTiers['elf']),          # If Lens wants different base stats for any/all races, I can hardcode that easily.
+        'human': defaultStats(sizeTiers['elf']),        # Allowing GMs to set that up per-server is doable, but would take a bit more work.
+        'werecat': defaultStats(sizeTiers['werecat']),
         'elfcat': defaultStats(sizeTiers['elfcat']),
         'cyborg': defaultStats(sizeTiers['cyborg']),
         'robot': defaultStats(sizeTiers['robot']),
@@ -931,7 +935,7 @@ def makeChar(codex, author):
     if not guildExists(author.server):
         createGuild(author.server)
     database[author.server.id].addCharacter(char)
-    return str(char)
+    return str(char) + '\n\n{:d} stat points used.'.format(sum(char.statPoints.values()))
 
 def clearBattle(codex, author):
     if author.server_permissions.administrator or author.server_permissions.manage_messages:
@@ -1028,40 +1032,20 @@ def showMap(codex, author):
         corner2 = clampPosWithinField((int(codex[1]), int(codex[3])), battle.size)
         out = battle.formatMap(corner1, corner2, int(codex[4]))
     if len(out) >= 2000:
-        return 'Map too large. Try decreasing the size of increasing the scale factor.'
+        return 'Map too large. Try decreasing the size or increasing the scale factor.'
     else:
         return out
 
-
-# def retreat(codex, author):
-#     battle = database[author.server.id]
-#     char = battle.currentChar()
-#     if author.id == char.userid or author.server_permissions.administrator or author.server_permissions.manage_messages:
-#         if len(codex) > 0:
-#             return battle.retreat(limit=int(codex[0])) + '\n\n' + battle.currentCharPretty()
-#         else:
-#             return battle.retreat() + '\n\n' + battle.currentCharPretty()
-#     else:
-#        return "You need Manage Messages or Administrator permission to take control of players' characters!"
-
-# # Command syntax: /approach [target] [limit]
-# def approach(codex, author):
-#     battle = database[author.server.id]
-#     char = battle.currentChar()
-#     if author.id == char.userid or author.server_permissions.administrator or author.server_permissions.manage_messages:
-#         target = None   # Default values, to be used for arguments that are not specified
-#         limit = -1
-#         if len(codex) >= 2: # Both optional arguments are specified
-#             target = codex[0]
-#             limit = int(codex[1])
-#         elif len(codex) == 1:   # One argument given, but I don't know which one yet
-#             try:
-#                 limit = int(codex[0])
-#             except ValueError:
-#                 target = codex[0]
-#         return battle.approach(targetName=target, limit=limit) + '\n\n' + battle.currentCharPretty()
-#     else:
-#        return "You need Manage Messages or Administrator permission to take control of players' characters!"
+def restat(codex, author):
+    battle = database[author.server.id]
+    char = battle.characters[codex[0].lower()]
+    if author.id == char.userid or author.server_permissions.administrator or author.server_permissions.manage_messages:
+        if char not in battle.participants:
+            char.statPoints = makeStatsFromCodex(codex[1:])
+            return str(char) + '\n\n{:d} stat points used.'.format(sum(char.statPoints.values()))
+        return "You need Manage Messages or Administrator permission to restat your character during a battle!"
+    else:
+        return "You need Manage Messages or Administrator permission to restat other players' characters!"
 
 def warp(codex, author):
     battle = database[author.server.id]
@@ -1170,8 +1154,9 @@ These commands are usable by all players, and do not typically have any impact o
 
 /roll XdY: Roll X dYs and add the results.
 /defaultstats: Print out the default stats for all the size tiers.
-/makechar name race hp acc eva atk dfn spd: Create a character with the given name, race, and stat point distribution.
-    Accepted races: faerie, elf, werecat, elfcat, cyborg, robot, kraken, elfship, steamship
+/makechar name race [hp acc eva atk dfn spd]: Create a character with the given name, race, and stat point distribution.
+    Accepted races: faerie, elf, human, werecat, elfcat, cyborg, robot, kraken, elfship, steamship
+/restat name hp acc eva atk dfn spd: Reshuffle your stats. Only works outside of battle.
 /delete name: Delete a character. Only works on characters you created. Warning, this is permanent!
 /join name: Join the battle ongoing on your server.
     Support for using /join with no argument to automatically add one of your characters is planned, but NYI.
@@ -1290,7 +1275,8 @@ RPN allows math formulae to be written in a perfectly unambiguous manner that is
         'gm': """GM commands
 These commands/behaviors only function if you are a GM, meaning that you have either Administrator or Manage Messages permission on the server.
 
-/pass, /attack, /delete, etc: GMs can use these commands to control/delete other players' characters.
+/pass, /attack, /delete, etc: GMs can use these commands to control or mess with other players' characters.
+    GMs can also /restat characters that are currently partaking in a battle.
 /clear: Clear the current battle and heal and respawn all participants.
 /warp name dist: Teleports the named character to the given location distance.
 /sethp name [health]: Sets the named character's current health, or to their maximum health is none is specified.
@@ -1371,6 +1357,8 @@ def getReply(content, message):
             return stats(codex[1:])
         elif codex[0] == 'makechar':
             return makeChar(codex[1:], message.author)
+        elif codex[0] == 'restat':
+            return restat(codex[1:], message.author)
         elif codex[0] == 'join':
             return joinBattle(codex[1:], message.author)
         elif codex[0] == 'list':
