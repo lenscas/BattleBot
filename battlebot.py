@@ -498,6 +498,9 @@ def statstring(stats):
 class Character:
     """Represents a character known to BattleBot."""
 
+    def clearModifiers(self):
+        self.modifiers = dict(HP=([], []), ACC=([], []), EVA=([], []), ATK=([], []), DEF=([], []), SPD=([], []))
+
     # Attributes: username, userid, name, race, size, statPoints, baseStats, abilities, modifiers, health, location, secret
     def __init__(self, owner, name, race, statpoints, secret=False):
         if not race in sizeTiers:
@@ -516,7 +519,7 @@ class Character:
         # Each entry in these lists is itself a pair. The first element of this pair is the amount that the modifier changes the stat.
         # The second element is the duration of the modifier. This will be decremented at the end of each turn, and when it drops below zero, the modifier is removed.
         # Negative durations last forever.
-        self.modifiers = dict(HP=([], []), ACC=([], []), EVA=([], []), ATK=([], []), DEF=([], []), SPD=([], []))
+        self.clearModifiers()
         #self.abilities = []     # Ability system is planned, but NYI
         self.health = self.hp()
         self.pos = (0, 0)       # X and Y coordinates
@@ -609,8 +612,10 @@ Current Stats: [{:s}]
 Location: ({:d}, {:d})
 Health: {:d}""".format(self.username, self.userid, self.name, self.race, self.size, s1, s2, self.pos[0], self.pos[1], self.health)
 
+    # Reset health to the maximum, and clear all modifiers.
     def respawn(self):
         self.health = self.hp()
+        self.clearModifiers()
 
     # Rolls an accuracy check against this character. Used in some of the methods below, and I plan to make this available to GMs
     # directly for special attacks.
@@ -800,6 +805,7 @@ class Battle:
             pass
 
     def passTurn(self):
+        self.currentChar().tickModifiers()
         self.moved = False
         self.attacked = False
         if self.turn == -1:
@@ -1560,7 +1566,7 @@ def updateDBFormat():
                         delattr(w, 'attacked')
                     if hasattr(w, 'abilities'):
                         delattr(w, 'abilities')
-                    w.modifiers = dict(HP=([], []), ACC=([], []), EVA=([], []), ATK=([], []), DEF=([], []), SPD=([], []))
+                    # w.modifiers = dict(HP=([], []), ACC=([], []), EVA=([], []), ATK=([], []), DEF=([], []), SPD=([], []))
 
 token = ''
 
