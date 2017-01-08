@@ -509,34 +509,89 @@ class Character:
         self.size = sizeTiers[self.race]
         self.statPoints = statpoints
         self.baseStats = baseStats[self.race]
-        self.abilities = []     # Ability system is planned, but NYI
-        self.modifiers = []     # Modifier system is also planned, but NYI
+        # Modifiers are stored in this dictionary.
+        # The keys are the same as in all the various stat dictionaries. HP, ACC, EVA, etc.
+        # Each value is a pair of lists. The first element in each pair is a list of multiplicative modifiers (e.g. 120% STR for 2 turns);
+        # and the second element is a list of additive modifiers (e.g. +20 ACC until end of battle).
+        # Each entry in these lists is itself a pair. The first element of this pair is the amount that the modifier changes the stat.
+        # The second element is the duration of the modifier. This will be decremented at the end of each turn, and when it drops below zero, the modifier is removed.
+        # Negative durations last forever.
+        self.modifiers = dict(HP=([], []), ACC=([], []), EVA=([], []), ATK=([], []), DEF=([], []), SPD=([], []))
+        #self.abilities = []     # Ability system is planned, but NYI
         self.health = self.hp()
         self.pos = (0, 0)       # X and Y coordinates
         self.secret = secret    # If true, this character's stats will not be reported to players (used for some NPCs)
 
+    # (stat, factor, duration, isMult)
+    def createModifier(self, theTuple):
+        stat, factor, duration, isMult = theTuple
+        pair = self.modifiers[stat]
+        mods = pair[0 if isMult else 1]
+        mods.append((factor, duration))
+
+    def listModifiers(self):
+        out = ''
+        for stat in ['HP', 'ACC', 'EVA', 'ATK', 'DEF', 'SPD']:
+            mults, adds = self.modifiers[stat]
+            if len(mults) > 0:
+                for f, d in mults:
+                    out += '{:d}% {:s} ({:d})   '.format(int(f * 100), stat, d)
+                out += '\n'
+            if len(adds) > 0:
+                for f, d in adds:
+                    out += '{:+d} {:s} ({:d})   '.format(f, stat, d)
+                out += '\n'
+        return out
+
+    def multModifiers(self, stat):
+        mods = self.modifiers[stat][0]
+        product = 1
+        for m, d in mods:
+            product *= m
+        return product
+
+    def addModifiers(self, stat):
+        mods = self.modifiers[stat][1]
+        total = 0
+        for m, d in mods:
+            total += m
+        return total
+
+    def calcStat(self, stat):
+        return int(self.baseStats[stat] * (1 + self.statPoints[stat] / 8) * self.multModifiers(stat) + self.addModifiers(stat))
+
     # Returns the characters hp STAT, i.e. their MAXIMUM health, NOT their current health. Use the self.health attribute for that.
     def hp(self):
-        return int(self.baseStats['HP'] * (1 + self.statPoints['HP'] / 8))  # Modifiers will, well, modify this
+        return self.calcStat('HP')
 
-    # Return the character's current Accuracy, accounting for all modifiers (once they're implemented)
+    # Return the character's current Accuracy, accounting for all modifiers
     def acc(self):
-        return int(self.baseStats['ACC'] * (1 + self.statPoints['ACC'] / 8))
+        return self.calcStat('ACC')
 
     def eva(self):
-        return int(self.baseStats['EVA'] * (1 + self.statPoints['EVA'] / 8))
+        return self.calcStat('EVA')
 
     def atk(self):
-        return int(self.baseStats['ATK'] * (1 + self.statPoints['ATK'] / 8))
+        return self.calcStat('ATK')
 
     def dfn(self):
-        return int(self.baseStats['DEF'] * (1 + self.statPoints['DEF'] / 8))
+        return self.calcStat('DEF')
 
     def spd(self):
-        return int(self.baseStats['SPD'] * (1 + self.statPoints['SPD'] / 8))
+        return self.calcStat('SPD')
 
     def currentStats(self):
         return makeStatDict(self.hp(), self.acc(), self.eva(), self.atk(), self.dfn(), self.spd())
+
+    def tickModifiers(self):
+        for pair in self.modifiers.values():
+            for mods in pair:
+                for i in range(len(mods) - 1, -1, -1):  # Iterate through the list in reverse order
+                    s, d = mods[i]
+                    if d > 0:
+                        mods[i] = (s, d-1)
+                    elif d == 0:
+                        del mods[i]
 
     def __str__(self):
         s1 = '...'
@@ -963,6 +1018,15 @@ def info(codex, author):
     else:
         return charData(codex, author)
 
+def modifiers(codex, author):
+    battle = database[author.server.id]
+    char = battle.characters[codex[0].lower()]
+    mods = char.listModifiers()
+    if len(mods) > 0:
+        return mods
+    else:
+        return char.name + ' has no modifiers.'
+
 def deleteChar(codex, author):
     battle = database[author.server.id]
     char = battle.characters[codex[0].lower()]
@@ -1046,6 +1110,41 @@ def restat(codex, author):
         return "You need Manage Messages or Administrator permission to restat your character during a battle!"
     else:
         return "You need Manage Messages or Administrator permission to restat other players' characters!"
+
+# Formatted like +10% STR 5
+def parseModifier(codex):
+    dur = codex[2]
+    if dur[0] == '(':       # Remove parens if present
+        dur = dur[1:]
+    if dur[-1] == ')':
+        dur = dur[:-1]
+    dur = int(dur)
+    stat = codex[1].upper()
+    factor = codex[0]
+    if factor[-1] == '%':
+        factor = factor[:-1]
+        isMult = True
+        if factor[0] == '+':
+            factor = int(factor[1:])
+            factor = 1 + factor / 100
+        elif factor[0] == '-':
+            factor = int(factor[1:])
+            factor = 1 - factor / 100
+        else:
+            factor = int(factor) / 100
+    else:
+        isMult = False
+        factor = int(factor)
+    return (stat, factor, dur, isMult)
+
+def addModifier(codex, author):
+    battle = database[author.server.id]
+    char = battle.characters[codex[0].lower()]
+    if author.server_permissions.administrator or author.server_permissions.manage_messages:
+        char.createModifier(parseModifier(codex[1:]))
+        return char.listModifiers()
+    else:
+        return "You need Manage Messages or Administrator permission to create modifiers!"
 
 def warp(codex, author):
     battle = database[author.server.id]
@@ -1162,6 +1261,7 @@ These commands are usable by all players, and do not typically have any impact o
     Support for using /join with no argument to automatically add one of your characters is planned, but NYI.
 /list: List a bunch of info about the current state of the battle- who's participating, turn order, etc.
 /list name: Show all the info about the named character.
+/modifiers name: Show all modifiers on the named character.
 /invite: Show BattleBot's invite link.
 /github: Show the link to this bot's sourcecode on GitHub.""",
         'battle': """Battle Commands
@@ -1278,6 +1378,14 @@ These commands/behaviors only function if you are a GM, meaning that you have ei
 /pass, /attack, /delete, etc: GMs can use these commands to control or mess with other players' characters.
     GMs can also /restat characters that are currently partaking in a battle.
 /clear: Clear the current battle and heal and respawn all participants.
+/addModifier name [+|-]factor[%] stat duration: Added a modifier to the named character.
+    If the % is omitted, create an additive multiplier that increases (or dereases) the stat by the specified amount.
+    If the % is present. what happens depends on the sign given, if any.
+    Plus sign means "increase this stat by the specified pecentage"
+    Minus sign means "decrease this stat by the specified amount"
+    No sign means "set this stat to this percentage of what is was before"
+    So 120% means the same thing as +20%, and 80% means teh same thing as -20%.
+    Acceptable stats are HP, ACC, EVA, STR, DEF, and SPD. All are case-insensitive.
 /warp name dist: Teleports the named character to the given location distance.
 /sethp name [health]: Sets the named character's current health, or to their maximum health is none is specified.
 /togglesecret name: Toggle whether the named character's stats are hidden from players.
@@ -1363,6 +1471,8 @@ def getReply(content, message):
             return joinBattle(codex[1:], message.author)
         elif codex[0] == 'list':
             return info(codex[1:], message.author)
+        elif codex[0] == 'modifiers':
+            return modifiers(codex[1:], message.author)
         elif codex[0] == 'attack':
             return basicAttack(codex[1:], message.author)
         elif codex[0] == 'pass':
@@ -1375,6 +1485,8 @@ def getReply(content, message):
             return clearBattle(codex[1:], message.author)
         elif codex[0] == 'delete':
             return deleteChar(codex[1:], message.author)
+        elif codex[0] == 'addModifier':
+            return addModifier(codex[1:], message.author)
         elif codex[0] == 'warp':
             return warp(codex[1:], message.author)
         elif codex[0] == 'sethp':
@@ -1398,7 +1510,7 @@ async def on_message(message):
     except Exception as err:
         await client.send_message(message.channel, "`" + traceback.format_exc() + "`")
 
-CURRENT_DB_VERSION = 5
+CURRENT_DB_VERSION = 7
 
 def updateDBFormat():
     if 'version' not in database or database['version'] < CURRENT_DB_VERSION:
@@ -1446,6 +1558,9 @@ def updateDBFormat():
                         delattr(w, 'moved')
                     if hasattr(w, 'attacked'):
                         delattr(w, 'attacked')
+                    if hasattr(w, 'abilities'):
+                        delattr(w, 'abilities')
+                    w.modifiers = dict(HP=([], []), ACC=([], []), EVA=([], []), ATK=([], []), DEF=([], []), SPD=([], []))
 
 token = ''
 
