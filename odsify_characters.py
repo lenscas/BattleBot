@@ -30,7 +30,7 @@ def _addCellsToRow(tr,textCell1,textCell2,addEmpty=False):
 
 def _randomStringGen(size=6, chars=string.ascii_uppercase + string.digits):
     return ''.join(random.choice(chars) for _ in range(size))
-def generateODSFromCharacters(characters,path=False):
+def generateODSFromCharacters(characters,grid=False,path=False):
     doc = OpenDocumentSpreadsheet()
     # lets generate the correct styles first. We start by creating the style for the columns of the grid
     # this to properly make the cells 1 cm wide
@@ -51,9 +51,23 @@ def generateODSFromCharacters(characters,path=False):
     table.addElement(TableColumn(stylename=character_col_style))
     #We now are slowly but surely generating more and more table rows, each one nicely stored into this array
     tableRows = []
-    tableRows.append(_easyAddRowsWithCells(table,grid_row_style,"character",""))
+    tableRows.append(
+        _easyAddRowsWithCells(
+            table,
+            grid_row_style,
+            "character",
+            ""
+        )
+    )
     _addCellsToRow(tableRows[-1],"character","",True)
-    tableRows.append(_easyAddRowsWithCells(table,grid_row_style,"",""))
+    tableRows.append(
+        _easyAddRowsWithCells(
+            table,
+            grid_row_style,
+            "",
+            ""
+        )
+    )
     #used to more easily loop over the attributes
     atributes = ["HP","ACC","EVA","ATK","DEF","SPD"]
     secondLine =False
