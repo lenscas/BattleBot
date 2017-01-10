@@ -492,13 +492,78 @@ baseStats = {
         }
 
 def statstring(stats):
-    return "HP: {:d}  Accuracy: {:d}  Evasion: {:d}  Attack: {:d}  Defense: {:d}  Speed: {:d}".format(stats['HP'],
-            stats['ACC'], stats['EVA'], stats['ATK'], stats['DEF'], stats['SPD'])
+    return "HP: {:d}  Accuracy: {:d}  Evasion: {:d}  Attack: {:d}  Defense: {:d}  Speed: {:d}".format(stats['HP'], stats['ACC'], stats['EVA'], stats['ATK'], stats['DEF'], stats['SPD'])
+
+# I can use objects instantiated from a class that hasn't been defined yet, as long as I don't explicitly refer to that class, right?
+class Modifier:
+    """Represents a modifier, and stores all the data needed for one."""
+
+    def getHolderMods(self):
+        pair = self.holder.modifiers[self.stat]
+        return pair[0 if self.isMult else 1]
+
+    def regWithHolder(self, holder=None):
+        if self.holder is None:
+            self.holder = holder
+        if self.holder is not None:
+            self.getHolderMods().append(self)
+
+    def regWithOwner(self, owner=None):
+        if self.owner is None:
+            self.owner = owner
+        if self.owner is not None:
+            self.owner.ownedModifiers.append(self)
+
+    def __init__(self, stat, factor=None, duration=None, isMult=None, holder=None, owner=None):
+        if factor is None and duration is None and isMult is None:
+            stat, factor, duration, isMult = stat   # Permit the first argument to be a tuple containing (stat, factor, duration, isMult), and ignoring the rest
+        self.stat = stat.upper()
+        self.factor = factor
+        self.duration = duration
+        self.isMult = isMult
+        self.holder = holder
+        self.owner = owner
+        self.regWithHolder()    # No-op if holder is None
+        self.regWithOwner()     # Ditto for owner
+
+    def revoke(self):
+        try:
+            if self.holder is not None:
+                self.getHolderMods().remove(self)
+            if self.owner is not None:
+                self.owner.ownedModifiers.remove(self)
+        except (AttributeError, ValueError) as e:       # Shouldn't be needed in the future, but the database got borked in testing
+            print('Something weird happened while trying to revoke a modifier:\n' + str(e))
+
+    def tick(self):
+        if self.duration == 0:
+            self.revoke()
+        elif self.duration > 0:
+            self.duration -= 1
+
+    def __eq__(self, other):
+        return self is other
+
+    def __str__(self):
+        if self.isMult:
+            return '{:d}% ({:d})'.format(int(self.factor * 100), self.duration)
+        else:
+            return '{:+d} ({:d})'.format(self.factor, self.duration)
+
+    __repr__ = __str__
+
+
 
 class Character:
     """Represents a character known to BattleBot."""
 
     def clearModifiers(self):
+        if hasattr(self, 'modifiers'):
+            for pair in self.modifiers.values():
+                for mods in pair:
+                    for m in mods:
+                        m.holder = None
+                        m.revoke()
         self.modifiers = dict(HP=([], []), ACC=([], []), EVA=([], []), ATK=([], []), DEF=([], []), SPD=([], []))
 
     # Attributes: username, userid, name, race, size, statPoints, baseStats, abilities, modifiers, health, location, secret
@@ -520,44 +585,47 @@ class Character:
         # The second element is the duration of the modifier. This will be decremented at the end of each turn, and when it drops below zero, the modifier is removed.
         # Negative durations last forever.
         self.clearModifiers()
+        self.ownedModifiers = []
         #self.abilities = []     # Ability system is planned, but NYI
         self.health = self.hp()
         self.pos = (0, 0)       # X and Y coordinates
         self.secret = secret    # If true, this character's stats will not be reported to players (used for some NPCs)
 
-    # (stat, factor, duration, isMult)
-    def createModifier(self, theTuple):
-        stat, factor, duration, isMult = theTuple
-        pair = self.modifiers[stat]
-        mods = pair[0 if isMult else 1]
-        mods.append((factor, duration))
+    # # (stat, factor, duration, isMult)
+    # def createModifier(self, theTuple):
+    #     stat, factor, duration, isMult = theTuple
+    #     pair = self.modifiers[stat]
+    #     mods = pair[0 if isMult else 1]
+    #     mods.append((factor, duration))
 
     def listModifiers(self):
         out = ''
         for stat in ['HP', 'ACC', 'EVA', 'ATK', 'DEF', 'SPD']:
             mults, adds = self.modifiers[stat]
-            if len(mults) > 0:
-                for f, d in mults:
-                    out += '{:d}% {:s} ({:d})   '.format(int(f * 100), stat, d)
-                out += '\n'
-            if len(adds) > 0:
-                for f, d in adds:
-                    out += '{:+d} {:s} ({:d})   '.format(f, stat, d)
-                out += '\n'
+            if len(mults) > 0 or len(adds) > 0:
+                out += '{}: {!s}\n'.format(stat, mults + adds)
+            # if len(mults) > 0:
+            #     for f, d in mults:
+            #         out += '{:d}% {:s} ({:d})   '.format(int(f * 100), stat, d)
+            #     out += '\n'
+            # if len(adds) > 0:
+            #     for f, d in adds:
+            #         out += '{:+d} {:s} ({:d})   '.format(f, stat, d)
+            #     out += '\n'
         return out
 
     def multModifiers(self, stat):
         mods = self.modifiers[stat][0]
         product = 1
-        for m, d in mods:
-            product *= m
+        for m in mods:
+            product *= m.factor
         return product
 
     def addModifiers(self, stat):
         mods = self.modifiers[stat][1]
         total = 0
-        for m, d in mods:
-            total += m
+        for m in mods:
+            total += m.factor
         return total
 
     def calcStat(self, stat):
@@ -587,14 +655,8 @@ class Character:
         return makeStatDict(self.hp(), self.acc(), self.eva(), self.atk(), self.dfn(), self.spd())
 
     def tickModifiers(self):
-        for pair in self.modifiers.values():
-            for mods in pair:
-                for i in range(len(mods) - 1, -1, -1):  # Iterate through the list in reverse order
-                    s, d = mods[i]
-                    if d > 0:
-                        mods[i] = (s, d-1)
-                    elif d == 0:
-                        del mods[i]
+        for m in self.ownedModifiers:
+            m.tick()
 
     def __str__(self):
         s1 = '...'
@@ -715,6 +777,7 @@ class Battle:
         self.size = (2048, 2048)
         self.moved = false      # True if the current character has /moved during their turn
         self.attacked = false   # True if the current character has /attacked or used an /ability during their turn
+        self.orphanModifiers = []
 
     def addCharacter(self, char):
         if char.name.lower() not in self.characters:
@@ -727,6 +790,9 @@ class Battle:
             v.respawn()
         self.participants = []
         self.turn = -1
+        for m in self.orphanModifiers:
+            m.revoke()
+        self.orphanModifiers = []
 
     # Warning: May give undefined behavior if char is not already in the characters dictionary
     def addParticipantByChar(self, char):
@@ -798,11 +864,21 @@ class Battle:
 
     def delete(self, name):
         char = self.characters[name.lower()]
+        char.clearModifiers()
+        for m in char.ownedModifiers:
+            m.revoke()
         del self.characters[name.lower()]
         try:
             self.removeParticipantByChar(char)
         except ValueError:
             pass
+
+    def addOrphanModifier(self, mod):
+        self.orphanModifiers.append(mod)
+
+    def tickOrphanModifiers(self):
+        for m in self.orphanModifiers:
+            m.tick()
 
     def passTurn(self):
         self.currentChar().tickModifiers()
@@ -814,6 +890,7 @@ class Battle:
             self.turn += 1
         if self.turn >= len(self.participants):
             self.turn = 0
+            self.tickOrphanModifiers()
 
     def availableActions(self):
         if self.moved and self.attacked:
@@ -1147,7 +1224,13 @@ def addModifier(codex, author):
     battle = database[author.server.id]
     char = battle.characters[codex[0].lower()]
     if author.server_permissions.administrator or author.server_permissions.manage_messages:
-        char.createModifier(parseModifier(codex[1:]))
+        try:
+            owner = battle.characters[codex[-1].lower()]
+        except KeyError:
+            owner = None
+        mod = Modifier(parseModifier(codex[1:]), holder=char, owner=owner) # Will automatically attach itself to the correct characters
+        if owner is None:
+            battle.addOrphanModifier(mod)
         return char.listModifiers()
     else:
         return "You need Manage Messages or Administrator permission to create modifiers!"
@@ -1253,7 +1336,7 @@ Want to host BattleBot yourself, look at the sourcecode, or file a bug report? T
 /help gm: Commands for GMs
 /help calc: Commands that roll dice and calculate stuff. Mostly obsoleted by all the above.
 
-**Do Note:** Many of these help pages are quite long. Please do not use them outside of your server's designated spam channel, or else the GM (and the other players) will be very annoyed with you.""",
+**Do Note:** Many of these help pages are quite long. Please do not use them outside of your server's designated spam channel, or the GM (and the other players) will be very annoyed with you.""",
         'player': """Player Commands
 These commands are usable by all players, and do not typically have any impact on the state of the battle.
 
@@ -1352,7 +1435,25 @@ ACC: Accuracy. The more of this you have, the more likely you'll actually be abl
 EVA: Evasion. The more of this you have, the better your chances of dodging an attack and taking no damage at all.
 ATK: Attack. How hard you hit.
 DEF: Defense. How well you are able to resist being hit.
-SPD: Speed. Determines order of initiative and how quickly you can move around the battlefield.
+SPD: Speed. Determines order of initiative and how quickly you can move around the battlefield.""",
+        'modifier': """Modifiers
+
+Battlebot supports modifiers to stats, of the multiplicative and additive varieties. The multiplicative ones apply first.
+Each modifier has the following data:
+    Stat: Which stat the modifier, well, modifies.
+    Strength: The amount by which the modifier modifies its associated stat.
+    Duration: How long the modifier will last.
+    Holder: The character to which the modifier applies.
+    Owner: The character who created the modifier.
+
+The durations of all modifiers tick down at the end of the turn of their *owner*. When the modifier's duration drops below zero, it is removed entirely.
+Thus, a modifier with duration 0 will vanish at the end of its creator's next turn (or current turn, if it is currently their turn).
+A newly-created modifier with duration N is guaranteed to last exactly N full turn cycles, barring ability shenenigans.
+
+Also note that modifiers whose durations are already negative will never decay. They are only cleared at the end of a battle (again, barring ability shenanigans).
+
+Also, modifiers instantly vanish the moment their owner dies. Because otherwise, modifiers whose creators died would never expire, and that would be weird.
+Unless they have no owner, which is also possible to do.
 """,
         'ability': """**Not Yet Implemented**""",
         'rpn': """Reverse Polish Notation
@@ -1384,15 +1485,15 @@ These commands/behaviors only function if you are a GM, meaning that you have ei
 /pass, /attack, /delete, etc: GMs can use these commands to control or mess with other players' characters.
     GMs can also /restat characters that are currently partaking in a battle.
 /clear: Clear the current battle and heal and respawn all participants.
-/addModifier name [+|-]factor[%] stat duration: Added a modifier to the named character.
-    If the % is omitted, create an additive multiplier that increases (or dereases) the stat by the specified amount.
+/addModifier name [+|-]factor[%] stat duration [owner]: Added a modifier to the named character.
+    If the % is omitted, create an additive multiplier that increases the stat by the specified amount (or dereases it, if negative).
     If the % is present. what happens depends on the sign given, if any.
-    Plus sign means "increase this stat by the specified pecentage"
-    Minus sign means "decrease this stat by the specified amount"
-    No sign means "set this stat to this percentage of what is was before"
-    So 120% means the same thing as +20%, and 80% means teh same thing as -20%.
+        Plus sign means "increase this stat by the specified pecentage"
+        Minus sign means "decrease this stat by the specified percentage"
+        No sign means "set this stat to this percentage of what is was before"
+    So 120% and +20% mean the same thing, as do 80% and -20%.
     Acceptable stats are HP, ACC, EVA, STR, DEF, and SPD. All are case-insensitive.
-/warp name dist: Teleports the named character to the given location distance.
+/warp name x y: Teleports the named character to the given coordinates.
 /sethp name [health]: Sets the named character's current health, or to their maximum health is none is specified.
 /togglesecret name: Toggle whether the named character's stats are hidden from players.
 /gmattack name acc atk [secret?]: Perform at attack with the given Accuracy and Attack against the named character.
@@ -1516,7 +1617,7 @@ async def on_message(message):
     except Exception as err:
         await client.send_message(message.channel, "`" + traceback.format_exc() + "`")
 
-CURRENT_DB_VERSION = 7
+CURRENT_DB_VERSION = 10
 
 def updateDBFormat():
     if 'version' not in database or database['version'] < CURRENT_DB_VERSION:
@@ -1532,6 +1633,8 @@ def updateDBFormat():
                     v.moved = False
                 if not hasattr(v, 'attacked'):
                     v.attacked = False
+                if not hasattr(v, 'orphanModifiers'):
+                    v.orphanModifiers = []
                 for l, w in v.characters.items():
                     # Character attributes: username, userid, name, race, size, statPoints, baseStats, abilities, modifiers, health, location, secret
                     if not hasattr(w, 'statPoints'):
@@ -1566,7 +1669,14 @@ def updateDBFormat():
                         delattr(w, 'attacked')
                     if hasattr(w, 'abilities'):
                         delattr(w, 'abilities')
-                    # w.modifiers = dict(HP=([], []), ACC=([], []), EVA=([], []), ATK=([], []), DEF=([], []), SPD=([], []))
+                    if not hasattr(w, 'modifiers'):
+                        w.clearModifiers()
+                    if hasattr(w, 'orphanModifiers'):
+                        delattr(w, 'orphanModifiers')
+                    if not hasattr(w, 'ownedModifiers'):
+                        w.ownedModifiers = []
+        ##### This is where CHARACTER attributes get added! BATTLE attributes go above and an indent level to the left! Stop forgetting that, SE!
+
 
 token = ''
 
