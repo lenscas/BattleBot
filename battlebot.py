@@ -1331,6 +1331,7 @@ Want to host BattleBot yourself, look at the sourcecode, or file a bug report? T
 /help move2: /move, page 2
 /help map: Detailed information on the /map command
 /help stats: How stats work in BattleBot
+/help modifier: How stat modifiers (i.e. buffs and debuffs) work
 /help ability: Deailed information on abilities and how to create them (coming soon!)
 /help rpn: Crash course on Reverse Polish Notation
 /help gm: Commands for GMs
