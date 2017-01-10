@@ -16,6 +16,20 @@ from random import randint, gauss
 from statistics import *
 from datetime import *
 
+generateExcel =True
+if generateExcel:
+    import odsify_characters
+
+def createExcel(characterList):
+    if not generateExcel:
+        return {'error':True,'message':"This command is not enabled right now"}
+    else:
+        pathToExcel = odsify_characters.generateODSFromCharacters(characterList)
+        #with open(pathToExcel, 'rb') as f:
+         #   await client.send_file(channel, f)
+        
+        return {'error':False,'file':pathToExcel,'message':""}
+
 # function roll(n) {
 #     if(n <= 10) {
 #         <insert the roll-and-add loop here>
@@ -775,8 +789,8 @@ class Battle:
         self.id = guild.id      # Guild ID
         self.name = guild.name  # Guild Name
         self.size = (2048, 2048)
-        self.moved = false      # True if the current character has /moved during their turn
-        self.attacked = false   # True if the current character has /attacked or used an /ability during their turn
+        self.moved = False      # True if the current character has /moved during their turn
+        self.attacked = False   # True if the current character has /attacked or used an /ability during their turn
         self.orphanModifiers = []
 
     def addCharacter(self, char):
@@ -1607,12 +1621,19 @@ def getReply(content, message):
             return git_link
         elif codex[0] == 'invite':
             return get_invite(client.user.id)
+        elif codex[0] == 'excel':
+            data = createExcel(database[message.author.server.id].characters)
+            return data
     return ""
 
 @client.event
 async def on_message(message):
     try:
         reply = getReply(message.content, message)
+        if not isinstance(reply, str):
+            if not reply['error']:
+                await client.send_file(message.channel,reply["file"])
+            reply = reply["message"]
         if(len(reply) != 0):
             await client.send_message(message.channel, reply)
     except Exception as err:
