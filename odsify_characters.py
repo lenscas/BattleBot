@@ -18,15 +18,16 @@ def _createAndAddElement(container,func,**args):
     container.addElement(newElement)
     return newElement
 
-def _easyAddRowsWithCells(table,rowStyle,textCell1,textCell2):
+def _easyAddRowsWithCells(table,rowStyle,textCell1,textCell2=False):
     tr = _createAndAddElement(table,TableRow,stylename=rowStyle)
     _addCellsToRow(tr,textCell1,textCell2)
     return tr
-def _addCellsToRow(tr,textCell1,textCell2,addEmpty=False):
+def _addCellsToRow(tr,textCell1,textCell2=False,addEmpty=False):
     if addEmpty:
         _createAndAddElement(tr,TableCell,valuetype="string").addElement(P(text=""))
     _createAndAddElement(tr,TableCell,valuetype="string").addElement(P(text=textCell1))
-    _createAndAddElement(tr,TableCell,valuetype="string").addElement(P(text=textCell2))
+    if textCell2:
+        _createAndAddElement(tr,TableCell,valuetype="string").addElement(P(text=textCell2))
 
 def _randomStringGen(size=6, chars=string.ascii_uppercase + string.digits):
     return ''.join(random.choice(chars) for _ in range(size))
@@ -51,79 +52,38 @@ def generateODSFromCharacters(characters,grid=False,path=False):
     table.addElement(TableColumn(stylename=character_col_style))
     #We now are slowly but surely generating more and more table rows, each one nicely stored into this array
     tableRows = []
-    tableRows.append(
-        _easyAddRowsWithCells(
-            table,
-            grid_row_style,
-            "character",
-            ""
-        )
-    )
-    _addCellsToRow(tableRows[-1],"character","",True)
-    tableRows.append(
-        _easyAddRowsWithCells(
-            table,
-            grid_row_style,
-            "",
-            ""
-        )
-    )
     #used to more easily loop over the attributes
     atributes = ["HP","ACC","EVA","ATK","DEF","SPD"]
-    secondLine =False
-    #we want to get all the keys so we can easily loop over them.
-    #However, because of how it is returned we need to do some extra processing :(
-    keys = characters.keys()
-    #we need the normal array so we can process 2 characters at the same time
-    #this is because we need to know the next key
-    #neither an dictonary nor the list you get from .keys() can do that easily
-    keyList=[]
-    for key in keys:
-        keyList.append(key)
-    for key in range(0,len(keyList),2):
+    tableRows.append(
+        _easyAddRowsWithCells(
+            table,
+            grid_row_style,
+            "name"
+        )
+    )
+    for att in atributes:
+        _addCellsToRow(
+            tableRows[-1],
+            att
+        )
+    
+    for char in characters:
         tableRows.append(
             _easyAddRowsWithCells(
                 table,grid_row_style,
-                "name",
-                characters[keyList[key]].name
+                characters[char].name
             )
         )
-        nextKey=key+1
-        extraCharacter = len(keyList)>nextKey
-        if extraCharacter:
-            _addCellsToRow(
-                tableRows[-1],
-                "name",
-                characters[keyList[nextKey]].name,
-                True
-            )
-        
         for atribute in atributes:
-            insert=characters[keyList[key]].statPoints[atribute]
+            insert=characters[char].statPoints[atribute]
             if insert == 0:
                 #if insert ==0 it will become "" in the excelsheet. This hopefully prevents that from happening
                 insert="0"
-            tableRows.append(_easyAddRowsWithCells(table,grid_row_style,atribute,insert))
-            if extraCharacter:
-                insert=characters[keyList[nextKey]].statPoints[atribute]
-                if insert == 0:
-                    #if insert ==0 it will become "" in the excelsheet. This hopefully prevents that from happening
-                    insert="0"
-                _addCellsToRow(
-                    tableRows[-1],
-                    atribute,
-                    insert,
-                    True
-                )
-            
-        tableRows.append(
-            _easyAddRowsWithCells(
-                table,
-                grid_row_style,
-                "",
-                ""
+            _addCellsToRow(
+                tableRows[-1],
+                insert
             )
-        )
+
     if not path:
         path = "./generated/"+_randomStringGen()+".ods"
     doc.save(path)
