@@ -19,6 +19,7 @@ from datetime import *
 generateExcel =True
 if generateExcel:
     import odsify_characters
+    import os
 
 def createExcel(characterList):
     if not generateExcel:
@@ -28,7 +29,7 @@ def createExcel(characterList):
         #with open(pathToExcel, 'rb') as f:
          #   await client.send_file(channel, f)
         
-        return {'error':False,'file':pathToExcel,'message':""}
+        return {'error':False,'file':pathToExcel,'message':"",'deleteAfterUpload':True}
 
 # function roll(n) {
 #     if(n <= 10) {
@@ -1632,7 +1633,9 @@ async def on_message(message):
         reply = getReply(message.content, message)
         if not isinstance(reply, str):
             if not reply['error']:
-                await client.send_file(message.channel,reply["file"])
+                await client.send_file(message.channel,reply['file'])
+                if reply['deleteAfterUpload']:
+                    os.remove(reply['file'])
             reply = reply["message"]
         if(len(reply) != 0):
             await client.send_message(message.channel, reply)
